@@ -6,4 +6,5 @@ int gfx_available(void);
 void gfx_desktop(void);
 void gfx_clear_terminal(void);
 void gfx_terminal_putc(char c);
+void gfx_mouse_move(int x, int y);
 #endif

@@ -31,6 +31,7 @@ $(BUILD)/alpos-kernel.elf: $(BUILD)/start.o $(BUILD)/interrupts.o $(BUILD)/main.
 	readelf -h $@ | grep -q 'Advanced Micro Devices X86-64'
 	python3 ../tools/ci/verify_multiboot.py $@
 	python3 ../tools/ci/verify_gui_header.py $@
+	python3 ../tools/ci/verify_input.py $(ARCH)/main.c
 	python3 ../tools/ci/verify_ring3_layout.py $@
 userland:
 	$(MAKE) -C ../userland initramfs

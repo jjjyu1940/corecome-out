@@ -1,17 +1,22 @@
-Build status: source-level checks passed.
+alpOS GUI input + CI patch
 
-Passed:
-- x86_64 assembler compilation of modified Multiboot2 entry.
-- x86_64 freestanding compilation of gui/gfx.c with -Wall -Wextra -Werror.
-- x86_64 freestanding compilation of modified main.c with -Wall -Wextra -Werror against current main-branch headers.
-- Linker-script smoke link of the boot entry with a dummy kernel_main.
-- Multiboot2 ELF header verification.
-- Multiboot2 framebuffer request verification (1024x768x32).
-- ZIP integrity verification.
+Included:
+- PS/2 controller setup and keyboard scanning enable
+- Keyboard polling with serial fallback
+- PS/2 mouse defaults/reporting enable and packet decoding
+- Framebuffer mouse pointer
+- GitHub Actions workflow: ISO build, QEMU smoke test, artifact upload
+- Build-time source verifier
 
-Not tested:
-- Full kernel link against the complete checkout.
-- GRUB ISO generation.
-- Limbo/QEMU boot or framebuffer rendering.
-- Mouse interaction.
-- FAT32/IDE/AHCI disk operations (not part of this GUI-first overlay).
+Local checks passed:
+- main.c compiled with x86_64-linux-gnu-gcc -Wall -Wextra -Werror
+- gui/gfx.c compiled with x86_64-linux-gnu-gcc -Wall -Wextra -Werror
+- verify_input.py passed
+- apply script bash syntax passed
+
+Not verified here:
+- Complete ISO build (GRUB/xorriso unavailable)
+- QEMU boot test
+- Physical Limbo keyboard/mouse test
+
+GitHub repository was not modified; integration connection returned HTTP 403 Resource not accessible by integration.

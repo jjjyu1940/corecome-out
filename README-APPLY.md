@@ -1,46 +1,30 @@
-# alpOS Graphical Desktop Stage 1
+# alpOS GUI + PS/2 input + GitHub Actions patch
 
-This is a standalone overlay for `jjjyu1940/corecome-out` (`main`). It is NOT merged into GitHub.
+This overlay replaces the earlier desktop-only prototype. It adds polling-mode PS/2 keyboard initialization (including controller configuration and keyboard scan enable), PS/2 mouse initialization (defaults + reporting enable), mouse packet decoding, and a framebuffer software pointer. It also installs a GitHub Actions workflow that builds the ISO, runs the existing QEMU boot smoke test, and uploads the ISO/kernel/initramfs artifacts.
 
 ## Apply
 
-From the repository root, copy the overlay contents into the same paths, allowing replacement of:
-- `kernel/arch/x86_64/main.c`
-- `kernel/arch/x86_64/boot/start.S`
-- `kernel/Makefile.x86`
+From the repository root after extracting this directory:
 
-Add:
-- `kernel/arch/x86_64/gui/gfx.c`
-- `kernel/arch/x86_64/gui/gfx.h`
-
-Then run:
-
-```sh
-make clean
-make iso
+```bash
+bash alpos-gui-input-ci/tools/apply-gui-stage1.sh .
+git add kernel .github tools/ci
+ git commit -m "Add alpOS GUI keyboard mouse and CI build"
+git push origin main
 ```
 
-Boot the ISO in Limbo with a video adapter that exposes a Multiboot2 RGB framebuffer. Prefer 1024x768, 32-bit color.
+The script copies only the overlay files; it does not replace VFS, ELF loader, userland, or other unrelated repository files.
 
-## What this stage does
+## GitHub Actions
 
-- Requests a 1024x768x32 Multiboot2 framebuffer.
-- Starts directly into an alpOS desktop before showing the command prompt.
-- Draws a desktop background, Files / Disk / Terminal icons, a terminal window and taskbar.
-- Routes kernel console output into the graphical terminal while retaining serial output.
-- Retains the existing shell and PS/2 keyboard polling input.
-- Falls back to VGA text output if GRUB does not provide a supported RGB framebuffer.
+After the commit is pushed, open the repository's **Actions** tab and select **alpOS x86_64 build**. The workflow installs the cross compiler, GRUB, xorriso, mtools and QEMU; runs `make clean`, `make iso`, and `make test`; then uploads `alpos-x86_64-gui-iso` containing the bootable ISO, kernel ELF and initramfs.
 
-## Important limitations
+## Input behavior
 
-This is the first graphical boot stage, not a complete desktop environment. The desktop icons are visual placeholders; mouse pointer/window dragging and click actions are not implemented yet. Keyboard input still goes to the terminal shell. The existing VFS is volatile RAM only. **FAT32, IDE/AHCI disk drivers, partition discovery, and persistent disk writes are not implemented by this overlay.** The Disk icon is a placeholder for the next storage stage.
+- Keyboard: PS/2 set-1 translated scan codes are polled; serial input remains available as a fallback.
+- Mouse: PS/2 three-byte packets move a software pointer on the framebuffer.
+- The current desktop is still a shell-first prototype. Mouse clicks are not yet wired to open Files/Disk windows; this patch fixes pointer movement and keyboard input first.
 
-The framebuffer code currently supports Multiboot2 RGB, 32-bpp framebuffers whose physical base is below 4 GiB. The kernel's current identity map covers the first 4 GiB. Limbo/QEMU boot validation is still required.
+## Validation and limits
 
-## GitHub Actions ISO build
-
-This overlay also adds `.github/workflows/alpos-build.yml`. After applying the overlay and committing/pushing the changes to `main`, GitHub Actions will build the kernel, userland initramfs and bootable ISO on pushes and pull requests. You can also run it manually from the repository's Actions tab using **alpOS x86_64 build** → **Run workflow**.
-
-When the workflow succeeds, open that run and download the artifact named `alpos-x86_64-iso-<commit>`. The artifact contains `alpos.iso`, the kernel ELF and the initramfs. The workflow does not push binaries back into the repository.
-
-The workflow builds the current repository contents; therefore apply this complete overlay before committing the changes. It is not enough to add only the workflow file.
+The changed `main.c` and `gfx.c` compile locally with `-Wall -Wextra -Werror`; the input verifier and shell syntax checks pass. A full ISO build/QEMU run cannot be performed in this environment because GRUB/xorriso/QEMU are not installed. The GitHub workflow must run after the patch is committed to verify the complete image. This patch does not modify GitHub by itself.
