@@ -1,8 +1,5 @@
-alpOS Ring 3 / ELF userland stage
-=================================
-Scope: TSS, user GDT, IDT vector 0x80, Ring 3 iretq transition, syscall write/exit,
-ELF64 PT_LOAD loader, newc CPIO module, and shell execution path for /bin/echo.
+alpOS Limbo input/cursor fix overlay
 
-Known limitations: fixed physical user-memory windows (32 MiB and 48 MiB),
-small static ET_EXEC only, no scheduler, no IRQ/preemption, no disk filesystem.
-Runtime must be confirmed under QEMU; compile/ISO checks are not a boot guarantee.
+Scope: VGA hardware cursor update + PS/2 controller initialization.
+Not merged to GitHub main.
+Not boot-tested in Limbo or QEMU.

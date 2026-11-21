@@ -1,53 +1,25 @@
-# corecome-out / alpOS
+# alpOS Limbo keyboard + cursor fix
 
-This repository contains multiple experimental kernel and service tracks. The AArch64 bare-metal kernel and the x86_64 alpOS bring-up are separate targets; do not treat an AArch64 test result as proof that the x86_64 image works.
+This is a small overlay for the current `main` branch. It does not replace the kernel or merge anything into GitHub.
 
-## x86_64 alpOS boot image
+## Apply
 
-The x86_64 target is currently a **bring-up milestone**, not a finished general-purpose operating system. It boots through GRUB 2 / Multiboot2, enters 64-bit long mode, initializes a minimal identity map, writes to VGA and COM1, and provides a small serial command shell.
-
-Install the Ubuntu 24.04 build dependencies:
+From the repository root, run:
 
 ```sh
-sudo apt-get update
-sudo apt-get install -y gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
-  grub-pc-bin grub-efi-amd64-bin grub-common xorriso qemu-system-x86
+python3 tools/apply-limbo-input-fix.py
+make clean
+make iso
 ```
 
-Build the ISO:
+Then boot the rebuilt ISO in Limbo Emulator. Tap the terminal display to focus it, then use Limbo's keyboard button to open the Android soft keyboard.
 
-```sh
-make -C kernel -f Makefile.x86 x86-iso
-```
+## Changes
 
-Run it in QEMU with an interactive serial shell:
+- Programs the VGA CRT controller cursor registers so the text cursor follows the shell input position.
+- Enables the first PS/2 port, enables set-1 translation, and explicitly sends keyboard command `0xF4` to enable scanning.
+- Keeps keyboard input polling-based; it does not enable IRQ1 or change the interrupt controller setup.
 
-```sh
-qemu-system-x86_64 -machine pc -m 256M -cdrom kernel/build-x86/alpos.iso \
-  -serial stdio -monitor none
-```
+## Notes
 
-Run the build, ISO validation, and QEMU boot smoke test:
-
-```sh
-make -C kernel -f Makefile.x86 x86-test
-```
-
-The ISO is written to `kernel/build-x86/alpos.iso`. GitHub Actions can produce the same ISO as an artifact using the `Build alpOS x86_64 ISO` workflow.
-
-### Current x86_64 scope
-
-- GRUB / Multiboot2 boot and 32-bit to 64-bit transition
-- 2 MiB page mappings for the first 1 GiB
-- VGA text output and 115200-baud COM1 serial console
-- serial shell commands: `help`, `about`, `clear`, `mem`, `reboot`, `halt`
-
-Not implemented yet: ring-3 user processes, scheduler, disk and filesystem drivers, networking, persistent storage, graphics desktop, and Linux/POSIX compatibility. These must be added and tested before calling alpOS a daily-use OS.
-
-## AArch64 kernel and services
-
-The existing AArch64 kernel and Java service tests remain independent. Use the repository's `make build`, `make test`, `make kernel-test`, and the documentation under `docs/` and `kernel/` for those targets.
-
-## License
-
-AGPL-3.0-only. See [LICENSE](LICENSE).
+This patch is based on the `kernel/arch/x86_64/main.c` currently present on `main`. It has not been tested in Limbo/QEMU here. If typing still fails after rebuilding, capture the Limbo keyboard settings and serial output; some emulator configurations may expose input differently.
