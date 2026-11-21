@@ -1,0 +1,10 @@
+Build status for this package
+============================
+PASS: `make` builds kernel/build-x86/alpos-kernel.elf in this sandbox.
+PASS: readelf identifies the output as ELF64 x86-64.
+PASS: verify_multiboot.py validates the Multiboot2 header and checksum.
+NOT RUN: ISO creation, because grub-mkrescue and xorriso are unavailable here.
+NOT RUN: QEMU boot test, because qemu-system-x86_64 is unavailable here.
+
+This is a focused overlay/build snapshot, not a full export of the GitHub repository.
+The repository already contains additional AArch64 and service code that is not included.
