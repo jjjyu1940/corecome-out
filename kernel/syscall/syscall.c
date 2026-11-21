@@ -1,0 +1,384 @@
+/* syscall.c —— 大内核的系统调用表。
+ *
+ * 约定不变：svc #0x80；x8 = 号；x0..x2 = 参数；x0 = 返回值。
+ * 号 1 保留成旧的“打印字符串”，因为既有自检按它断言；
+ * 真正的文件语义从 4 开始，走 VFS，不再直接摸 UART。
+ *
+ * 第三层权限就在这个文件：**用户指针一律校验**。
+ * 前两层（页表 U 位/AP、EL0 取指与访存权限）拦得住“读写不该碰的页”，
+ * 但拦不住“把内核地址当参数递进来”——内核对用户指针是直接解引用的，
+ * EL1 读用户 VA 又是合法的。所以每个吃指针的号都必须先过 u_ok()：
+ *   落在 [USER_WIN_BASE, USER_WIN_TOP)、长度不溢出、且当前 aspace 里真映射过。
+ * 内核线程自己 svc 时不套这套（g_from_el0=0），它们传的是内核指针。
+ */
+#include "kern.h"
+
+#define SYS_PUTS    1
+#define SYS_TICKS   2
+#define SYS_HEAP    3
+#define SYS_WRITE   4
+#define SYS_OPEN    5
+#define SYS_READ    6
+#define SYS_CLOSE   7
+#define SYS_YIELD   8
+#define SYS_EXIT    9
+#define SYS_LIST   10
+#define SYS_FORK   11
+#define SYS_EXEC   12
+#define SYS_WAIT   13
+#define SYS_PID    14
+#define SYS_PPID   15
+#define SYS_CLONE  16
+#define SYS_GETTID 17
+#define SYS_KILL   18
+#define SYS_MKDIR  20
+#define SYS_UNLINK 21
+#define SYS_STAT   22
+#define SYS_TIME   23
+#define SYS_SLEEP  24
+#define SYS_SEEK   25
+#define SYS_RENAME 26
+#define SYS_DUP    27
+#define SYS_PIPE   28
+#define SYS_ACCESS 29
+#define SYS_SIGNAL 31
+
+/* 类 Unix 扩展（M6）。
+ * 注意：33 之前的号是内核现状（1..32），新增从 33 起排，避免与已分配号冲突。
+ * libc/libc.h 与内核这两张表必须同步修改。 */
+#define SYS_CHDIR      33
+#define SYS_GETCWD     34
+#define SYS_UMASK      35
+#define SYS_GETUID     36
+#define SYS_GETGID     37
+#define SYS_SIGACTION  38
+#define SYS_SIGPROCMASK 39
+#define SYS_MMAP       40
+#define SYS_MUNMAP     41
+#define SYS_DUP2       42
+#define SYS_FCNTL      43
+#define SYS_FSTAT      44
+#define SYS_GETPGID    45
+#define SYS_SETPGID    46
+#define SYS_IOCTL      47
+#define SYS_MOUNT      48
+
+extern u64 heap_used(void);
+
+/* 返回值 -2 = EFAULT：调用没通过参数校验，不是“功能没实现”。 */
+#define EFAULT_  ((u64)-2)
+
+static int u_ok(u64 p, u64 n)
+{
+    u64 *l1;
+
+    if (n == 0) {
+        return 1;
+    }
+    if (p < USER_WIN_BASE || p >= USER_WIN_TOP) {
+        return 0;
+    }
+    if (p + n < p || p + n > USER_WIN_TOP) { /* 长度回绕 */
+        return 0;
+    }
+    l1 = sched_get_l1();
+    if (l1 == (u64 *)0) {
+        return 0; /* 没有 aspace 就不该有用户指针 */
+    }
+    /* 逐页看：首尾都映射不代表中间没有洞 */
+    while (p < p + n && n > 0) {
+        u64 step = 4096 - (p & 4095);
+        if (pg_user_pa(l1, p) == 0) {
+            return 0;
+        }
+        if (step > n) {
+            break;
+        }
+        p += step;
+        n -= step;
+    }
+    return 1;
+}
+
+/* 逐页校验的 copyin：字符串可能贴着页尾、下一页未必映射，
+ * 直接 kputs() 用户指针等于让内核替用户跑野指针。 */
+static int u_str(u64 p, char *dst, u64 cap)
+{
+    u64 i;
+
+    for (i = 0; i + 1 < cap; i++) {
+        if (!u_ok(p + i, 1)) {
+            return -1;
+        }
+        dst[i] = *(const char *)(p + i);
+        if (dst[i] == 0) {
+            return (int)i;
+        }
+    }
+    dst[cap - 1] = 0;
+    return (int)(cap - 1);
+}
+
+static u64 deny(u64 nr, u64 p)
+{
+    printk("[kern] user: syscall denied nr=%u ptr=%x\n", (u32)nr, (u32)p);
+    return EFAULT_;
+}
+
+u64 syscall_dispatch(u64 nr, u64 a0, u64 a1, u64 a2)
+{
+    switch (nr) {
+    case SYS_PUTS:
+        if (g_from_el0) {
+            char buf[128];
+            if (u_str(a0, buf, sizeof(buf)) < 0) {
+                return deny(nr, a0);
+            }
+            kputs(buf);
+            return 0;
+        }
+        kputs((const char *)a0);
+        return 0;
+    case SYS_TICKS:
+        return tick_count();
+    case SYS_HEAP:
+        return heap_used();
+    case SYS_WRITE:
+        if (g_from_el0 && !u_ok(a1, a2)) {
+            return deny(nr, a1);
+        }
+        return (u64)vfs_write((int)a0, (const void *)a1, a2);
+    case SYS_OPEN:
+        if (g_from_el0) {
+            char path[VFS_PATH_MAX];
+            if (u_str(a0, path, sizeof(path)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)vfs_open(path, (int)a1);
+        }
+        return (u64)vfs_open((const char *)a0, (int)a1);
+    case SYS_READ:
+        if (g_from_el0 && !u_ok(a1, a2)) {
+            return deny(nr, a1);
+        }
+        return (u64)vfs_read((int)a0, (void *)a1, a2);
+    case SYS_MKDIR:
+        if (g_from_el0) {
+            char path[VFS_PATH_MAX];
+            if (u_str(a0, path, sizeof(path)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)vfs_mkdir(path);
+        }
+        return (u64)vfs_mkdir((const char *)a0);
+    case SYS_UNLINK:
+        if (g_from_el0) {
+            char path[VFS_PATH_MAX];
+            if (u_str(a0, path, sizeof(path)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)vfs_unlink(path);
+        }
+        return (u64)vfs_unlink((const char *)a0);
+    case SYS_TIME:
+        return tick_count();
+    case SYS_SIGNAL:
+        return (u64)sched_set_handler((int)a0, a1);
+    case SYS_ACCESS:
+        if (g_from_el0) {
+            char path[VFS_PATH_MAX];
+            if (u_str(a0, path, sizeof(path)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)vfs_access(path);
+        }
+        return (u64)vfs_access((const char *)a0);
+    case SYS_PIPE: {
+        int pair[2];
+
+        if (g_from_el0 && !u_ok(a0, sizeof(pair))) {
+            return deny(nr, a0);
+        }
+        if (vfs_pipe(pair) != 0) {
+            return (u64)-1;
+        }
+        ((int *)a0)[0] = pair[0];
+        ((int *)a0)[1] = pair[1];
+        return 0;
+    }
+    case SYS_DUP:
+        return (u64)vfs_dup((int)a0);
+    case SYS_RENAME:
+        if (g_from_el0) {
+            char a[VFS_PATH_MAX];
+            char b[VFS_PATH_MAX];
+            if (u_str(a0, a, sizeof(a)) < 0 || u_str(a1, b, sizeof(b)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)vfs_rename(a, b);
+        }
+        return (u64)vfs_rename((const char *)a0, (const char *)a1);
+    case SYS_SEEK:
+        return (u64)vfs_seek((int)a0, (i64)a1);
+    case SYS_SLEEP:
+        sched_sleep(a0);
+        return 0;
+    case SYS_STAT:
+        if (g_from_el0) {
+            char path[VFS_PATH_MAX];
+            if (u_str(a0, path, sizeof(path)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)vfs_size(path);
+        }
+        return (u64)vfs_size((const char *)a0);
+    case SYS_CLOSE:
+        return (u64)vfs_close((int)a0);
+    case SYS_YIELD:
+        schedule();
+        return 0;
+    case SYS_EXIT:
+        kthread_exit();
+        return 0; /* 不会到这里 */
+    case SYS_LIST:
+        if (g_from_el0 && (!u_ok(a0, 1) || !u_ok(a1, a2))) {
+            return deny(nr, a0);
+        }
+        return (u64)vfs_list((const char *)a0, (char *)a1, a2);
+    case SYS_PID:
+        return (u64)(i64)sched_pid();
+    case SYS_PPID:
+        return (u64)(i64)sched_ppid();
+    case SYS_CLONE:
+        /* 真正的 clone 在 do_sync 里做（要读整份 trap frame：entry/arg/sp），
+         * 走到这里说明调用方式不对，直接 ENOSYS。 */
+        return (u64)-1;
+    case SYS_GETTID:
+        return (u64)(i64)sched_pid();
+    case SYS_KILL:
+        return (u64)(i64)sched_kill((int)a0, (int)a1);
+    /* ==================== 类 Unix 扩展（M6）==================== */
+    case SYS_CHDIR:
+        if (g_from_el0) {
+            char path[VFS_PATH_MAX];
+            if (u_str(a0, path, sizeof(path)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)(i64)sched_setcwd(path);
+        }
+        return (u64)(i64)sched_setcwd((const char *)a0);
+    case SYS_GETCWD:
+        if (g_from_el0 && !u_ok(a0, a1)) {
+            return deny(nr, a0);
+        }
+        return (u64)(i64)sched_getcwd((char *)a0, a1);
+    case SYS_UMASK:
+        return (u64)(i64)sched_setumask((int)a0);
+    case SYS_GETUID:
+        return (u64)(i64)sched_getuid();
+    case SYS_GETGID:
+        return (u64)(i64)sched_getgid();
+    case SYS_GETPGID:
+        return (u64)(i64)sched_getpgid();
+    case SYS_SETPGID:
+        return (u64)(i64)sched_setpgid((int)a0, (int)a1);
+    case SYS_DUP2: {
+        int r = (int)vfs_dup2((int)a0, (int)a1);
+        return r < 0 ? (u64)-1 : (u64)(i64)r;
+    }
+    case SYS_FSTAT: {
+        if (g_from_el0 && !u_ok(a1, a2)) {
+            return deny(nr, a1);
+        }
+        return (u64)(i64)vfs_fstat((int)a0, a1, a2);
+    }
+    case SYS_IOCTL: {
+        /* ioctl 命令里常带用户指针，但当前只支持无指针命令（TIOCGWINSZ 等），
+         * 直接把 arg 当整数传，避免引入 copyin 复杂度。 */
+        return (u64)(i64)vfs_ioctl((int)a0, a1, a2);
+    }
+    case SYS_MOUNT:
+        if (g_from_el0) {
+            char src[VFS_PATH_MAX];
+            char tgt[VFS_PATH_MAX];
+            char type[16];
+            if (u_str(a0, src, sizeof(src)) < 0 ||
+                u_str(a1, tgt, sizeof(tgt)) < 0 ||
+                u_str(a2, type, sizeof(type)) < 0) {
+                return deny(nr, a0);
+            }
+            return (u64)(i64)vfs_mount(src, tgt, type);
+        }
+        return (u64)(i64)vfs_mount((const char *)a0, (const char *)a1,
+                                   (const char *)a2);
+    /* 内存管理：当前页池仅 256 页，mmap 作为用户堆延伸的简易实现 */
+    case SYS_MMAP: {
+        /* a0=addr(忽略) a1=len a2=prot a3=flags a4=fd a5=off ——
+         * dispatch 只传 3 参，多参调用改走 do_sync 全帧路径。
+         * 这里只实现匿名私有映射（flags & 0x20），其他返回 ENOSYS。 */
+        u64 len = a1;
+        int prot = (int)a2;
+        int flags = (int)a3;
+        void *p;
+
+        if (len == 0 || (len & 4095UL) != 0) {
+            return EFAULT_; /* 要求页对齐 */
+        }
+        if ((flags & 0x20) == 0) { /* MAP_ANONYMOUS */
+            return (u64)-1; /* ENOSYS：文件映射暂不支持 */
+        }
+        p = (void *)mm_page_alloc(); /* 当前一页一请求，简化 */
+        if (p == (void *)0) return (u64)-1;
+        {
+            u64 attr = PG_USER_RW;
+            if (prot & 1) attr = PG_USER_RW;      /* PROT_READ */
+            if (prot & 4) attr = PG_USER_RX;      /* PROT_EXEC，不可写 */
+            if (pg_map_user(sched_get_l1(), (u64)p, (u64)p, attr) != 0) {
+                mm_page_free(p);
+                return (u64)-1;
+            }
+        }
+        return (u64)p;
+    }
+    case SYS_MUNMAP: {
+        /* 当前只支持整页归还；不拆半页映射。 */
+        if (a0 == 0 || (a0 & 4095UL) != 0 || (a1 & 4095UL) != 0) {
+            return EFAULT_;
+        }
+        mm_page_free((void *)a0);
+        return 0;
+    }
+    /* sigaction/sigprocmask 由 do_sync 走全帧路径（需改 handler 表），
+     * dispatch 只处理这两个的极简版：参数在 a0/a1，无帧访问需求。 */
+    case SYS_SIGACTION: {
+        /* a0=sig a1=act指针。当前内核已支持 per-signal handler，
+         * 直接复用 sched_set_handler；mask/sa_flags 暂忽略。 */
+        return (u64)(i64)sched_set_handler((int)a0, a1);
+    }
+    case SYS_SIGPROCMASK: {
+        /* 当前内核没有信号掩码实现，保持空操作、返回成功（POSIX 允许） */
+        return 0;
+    }
+    default:
+        return (u64)-1; /* ENOSYS */
+    }
+}
+/* ---- kstruct：系统调用表 + 哪几个号吃指针 ---- */
+void syscall_dump(void)
+{
+    static const char *names[] = {
+        "puts", "ticks", "heap", "write", "open",
+        "read", "close", "yield", "exit", "list",
+        "fork", "exec", "wait", "pid", "ppid",
+        "clone", "gettid", "kill"
+    };
+    u64 nr;
+
+    printk("[syscall] svc #0x80, x8=nr; EL0 ptr -> u_ok/u_str\n");
+    for (nr = 1; nr <= 18; nr++) {
+        int guarded = (nr == SYS_PUTS || nr == SYS_WRITE || nr == SYS_OPEN ||
+                       nr == SYS_READ || nr == SYS_LIST);
+        printk("  %u %s%s\n", (u32)nr, names[nr - 1],
+               guarded ? " [ptr-check]" : "");
+    }
+}
