@@ -1,0 +1,62 @@
+name: alpOS x86_64 build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-iso:
+    name: Build bootable ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
+            grub-pc-bin grub-common xorriso mtools python3 file
+
+      - name: Show toolchain
+        run: |
+          x86_64-linux-gnu-gcc --version
+          grub-mkrescue --version
+          xorriso -version | head -n 2
+
+      - name: Build kernel, userland and ISO
+        run: |
+          make clean
+          make iso
+
+      - name: Verify build outputs
+        run: |
+          test -s kernel/build-x86/alpos-kernel.elf
+          test -s userland/build/initramfs.cpio
+          test -s kernel/build-x86/alpos.iso
+          file kernel/build-x86/alpos-kernel.elf kernel/build-x86/alpos.iso
+          sha256sum kernel/build-x86/alpos.iso
+
+      - name: Upload alpOS ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpos-x86_64-iso-${{ github.sha }}
+          path: |
+            kernel/build-x86/alpos.iso
+            kernel/build-x86/alpos-kernel.elf
+            userland/build/initramfs.cpio
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

@@ -3,6 +3,7 @@
 #include "vfs.h"
 #include "descriptors.h"
 #include "user.h"
+#include "gui/gfx.h"
 
 #define COM1 0x3F8
 #define VGA_WIDTH 80
@@ -16,11 +17,11 @@ static inline uint8_t inb(uint16_t p){uint8_t v;__asm__ volatile("inb %1, %0":"=
 static void serial_init(void){outb(COM1+1,0);outb(COM1+3,0x80);outb(COM1,1);outb(COM1+1,0);outb(COM1+3,3);outb(COM1+2,0xC7);outb(COM1+4,0x0B);}
 static void serial_putc(char c){unsigned t=1000000;while(!(inb(COM1+5)&0x20)&&--t){}if(t)outb(COM1,(uint8_t)c);}
 static void scroll(void){for(size_t y=1;y<VGA_HEIGHT;y++)for(size_t x=0;x<VGA_WIDTH;x++)VGA_MEMORY[(y-1)*VGA_WIDTH+x]=VGA_MEMORY[y*VGA_WIDTH+x];for(size_t x=0;x<VGA_WIDTH;x++)VGA_MEMORY[(VGA_HEIGHT-1)*VGA_WIDTH+x]=(uint16_t)(color<<8)|' ';cursor_y=VGA_HEIGHT-1;}
-void console_putc(char c){serial_putc(c);if(c=='\n'){cursor_x=0;++cursor_y;}else if(c=='\r')cursor_x=0;else if(c=='\b'){if(cursor_x)--cursor_x;VGA_MEMORY[cursor_y*VGA_WIDTH+cursor_x]=(uint16_t)(color<<8)|' ';}else{VGA_MEMORY[cursor_y*VGA_WIDTH+cursor_x]=(uint16_t)(color<<8)|(uint8_t)c;if(++cursor_x==VGA_WIDTH){cursor_x=0;++cursor_y;}}if(cursor_y>=VGA_HEIGHT)scroll();}
+void console_putc(char c){serial_putc(c);if(gfx_available()){gfx_terminal_putc(c);return;}if(c=='\n'){cursor_x=0;++cursor_y;}else if(c=='\r')cursor_x=0;else if(c=='\b'){if(cursor_x)--cursor_x;VGA_MEMORY[cursor_y*VGA_WIDTH+cursor_x]=(uint16_t)(color<<8)|' ';}else{VGA_MEMORY[cursor_y*VGA_WIDTH+cursor_x]=(uint16_t)(color<<8)|(uint8_t)c;if(++cursor_x==VGA_WIDTH){cursor_x=0;++cursor_y;}}if(cursor_y>=VGA_HEIGHT)scroll();}
 void console_write(const char*s,size_t n){for(size_t i=0;i<n;i++)console_putc(s[i]);}
 static void puts(const char*s){while(*s)console_putc(*s++);}
 static int eq(const char*a,const char*b){while(*a&&*a==*b){a++;b++;}return *a==*b;}
-static void clear(void){for(size_t i=0;i<VGA_WIDTH*VGA_HEIGHT;i++)VGA_MEMORY[i]=(uint16_t)(color<<8)|' ';cursor_x=cursor_y=0;serial_putc(27);serial_putc('[');serial_putc('2');serial_putc('J');serial_putc(27);serial_putc('[');serial_putc('H');}
+static void clear(void){if(gfx_available())gfx_clear_terminal();else{for(size_t i=0;i<VGA_WIDTH*VGA_HEIGHT;i++)VGA_MEMORY[i]=(uint16_t)(color<<8)|' ';cursor_x=cursor_y=0;}serial_putc(27);serial_putc('[');serial_putc('2');serial_putc('J');serial_putc(27);serial_putc('[');serial_putc('H');}
 static void ps2_init(void){unsigned t;for(t=0;t<100000;t++)if(!(inb(0x64)&2))break;outb(0x64,0xAE);for(t=0;t<100000;t++)if(inb(0x64)&1)(void)inb(0x60);}
 static const char normal[128]={0,27,'1','2','3','4','5','6','7','8','9','0','-','=','\b','\t','q','w','e','r','t','y','u','i','o','p','[',']','\n',0,'a','s','d','f','g','h','j','k','l',';','\'','`',0,'\\','z','x','c','v','b','n','m',',','.','/',0,'*',0,' '};
 static const char shifted[128]={0,27,'!','@','#','$','%','^','&','*','(',')','_','+','\b','\t','Q','W','E','R','T','Y','U','I','O','P','{','}','\n',0,'A','S','D','F','G','H','J','K','L',':','"','~',0,'|','Z','X','C','V','B','N','M','<','>','?',0,'*',0,' '};
@@ -33,7 +34,7 @@ static void print_dec(int v){char b[12];unsigned n=0;unsigned x=(unsigned)(v<0?-
 static void run_user(const char *name,const char *args){int r=user_exec(name,args);if(r==-256)puts("exec: program not found or invalid ELF\n");else{puts("[exit ");print_dec(r);puts("]\n");}}
 static void command(char *line,uint32_t magic,uint32_t mbi){char *arg=line;while(*arg&&*arg!=' ')arg++;if(*arg){*arg++=0;while(*arg==' ')arg++;}
  if(eq(line,"help")){puts("Commands: help about clear mem ls pwd cd mkdir touch cat exec reboot halt\nUser programs: /bin/echo, /bin/uname (try: echo hello)\n");}
- else if(eq(line,"about")){puts("alpOS x86_64 - Ring 3 userland bring-up\nVFS: volatile RAM; ELF64 + int 0x80 syscalls\n");}
+ else if(eq(line,"about")){puts("alpOS x86_64 - graphical desktop + Ring 3 userland\nVFS: volatile RAM; ELF64 + int 0x80 syscalls\n");}
  else if(eq(line,"clear"))clear();
  else if(eq(line,"mem")){puts("Multiboot2 info: 0x");print_hex(mbi);puts(" magic: 0x");print_hex(magic);console_putc('\n');}
  else if(eq(line,"pwd")){print_path(cwd);console_putc('\n');}
@@ -47,4 +48,4 @@ static void command(char *line,uint32_t magic,uint32_t mbi){char *arg=line;while
  else if(eq(line,"halt")){puts("System halted.\n");for(;;)__asm__ volatile("cli; hlt");}
  else if(*line)run_user(line,arg);
 }
-void kernel_main(uint32_t magic,uint32_t mbi){serial_init();ps2_init();if(magic!=0x36D76289){puts("[alpOS] ERROR: invalid Multiboot2 magic\n");for(;;)__asm__ volatile("cli; hlt");}descriptors_init();vfs_init();user_init(mbi);cwd=vfs_root();clear();puts("========================================\n              alpOS x86_64              \n========================================\nGRUB / Multiboot2 boot complete.\nTSS + Ring 3 + int 0x80 syscall path installed.\nType 'help' to list commands.\n[alpOS] shell ready\n\n");char line[128];for(;;){size_t len=0;puts("alpos:");print_path(cwd);puts("$ ");for(;;){char c=(char)input_char();if(c=='\r'||c=='\n'){console_putc('\n');line[len]=0;break;}if((c=='\b'||c==0x7F)&&len){--len;console_putc('\b');}else if(c>=0x20&&c<=0x7E&&len+1<sizeof(line)){line[len++]=c;console_putc(c);}}command(line,magic,mbi);}}
+void kernel_main(uint32_t magic,uint32_t mbi){serial_init();if(magic!=0x36D76289){puts("[alpOS] ERROR: invalid Multiboot2 magic\n");for(;;)__asm__ volatile("cli; hlt");}gfx_init(mbi);if(gfx_available())gfx_desktop();ps2_init();descriptors_init();vfs_init();user_init(mbi);cwd=vfs_root();clear();puts("alpOS graphical shell ready\nType 'help' to list commands.\n\n");char line[128];for(;;){size_t len=0;puts("alpos:");print_path(cwd);puts("$ ");for(;;){char c=(char)input_char();if(c=='\r'||c=='\n'){console_putc('\n');line[len]=0;break;}if((c=='\b'||c==0x7F)&&len){--len;console_putc('\b');}else if(c>=0x20&&c<=0x7E&&len+1<sizeof(line)){line[len++]=c;console_putc(c);}}command(line,magic,mbi);}}

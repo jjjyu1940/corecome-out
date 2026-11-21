@@ -1,4 +1,4 @@
-/* Multiboot2 entry: protected mode -> long mode; supervisor-only identity map. */
+/* Multiboot2 entry: request a 32-bit RGB framebuffer, then enter long mode. */
 .section .boot,"ax",@progbits
 .code32
 .global start
@@ -15,6 +15,11 @@
 .align 8
 mb2_header:
 .long MB2_MAGIC, MB2_ARCH, MB2_LENGTH, MB2_CHECKSUM
+/* Framebuffer header tag: preferred 1024x768, 32bpp. */
+.short 5, 0
+.long 20
+.long 1024, 768, 32
+.align 8
 .short 0, 0
 .long 8
 mb2_header_end:
@@ -62,7 +67,6 @@ setup_page_tables:
  xorl %eax,%eax
  movl $(8*4096/4),%ecx
  rep stosl
- /* PML4[0] is user-capable only so selected lower-level entries can be U/S. */
  movl $(PDPT_ADDR|7),%eax
  movl %eax,PML4_ADDR
  movl $(PDPT_ADDR|3),%eax
@@ -78,7 +82,7 @@ setup_page_tables:
  movl %esi,%edi
  movl %ebp,%eax
  shll $30,%eax
- orl $0x83,%eax              /* present + writable + 2MiB; supervisor */
+ orl $0x83,%eax
  xorl %ecx,%ecx
 3:
  movl %eax,(%edi,%ecx,8)
@@ -90,7 +94,6 @@ setup_page_tables:
  incl %ebp
  cmpl $4,%ebp
  jne 2b
- /* Dedicated 4KiB page tables: user text at 0x400000, stack below 2GiB. */
  movl $(0x76000|7),%eax
  movl %eax,PD_BASE+(2*8)
  movl $(0x77000|7),%eax
@@ -112,13 +115,13 @@ gdt32_ptr:
 .align 8
 gdt64:
 .quad 0
-.quad 0x00AF9A000000FFFF       /* kernel code 0x08 */
-.quad 0x00CF92000000FFFF       /* kernel data 0x10 */
-.quad 0x00CFF2000000FFFF       /* user data 0x1b */
-.quad 0x00AFFA000000FFFF       /* user code 0x23 */
+.quad 0x00AF9A000000FFFF
+.quad 0x00CF92000000FFFF
+.quad 0x00CFF2000000FFFF
+.quad 0x00AFFA000000FFFF
 .global gdt_tss_desc
 gdt_tss_desc:
-.quad 0,0                     /* 64-bit TSS descriptor, filled by C */
+.quad 0,0
 gdt64_end:
 gdt64_ptr_low:
 .word gdt64_end-gdt64-1

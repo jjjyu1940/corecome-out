@@ -1,5 +1,17 @@
-alpOS Limbo input/cursor fix overlay
+Build status: source-level checks passed.
 
-Scope: VGA hardware cursor update + PS/2 controller initialization.
-Not merged to GitHub main.
-Not boot-tested in Limbo or QEMU.
+Passed:
+- x86_64 assembler compilation of modified Multiboot2 entry.
+- x86_64 freestanding compilation of gui/gfx.c with -Wall -Wextra -Werror.
+- x86_64 freestanding compilation of modified main.c with -Wall -Wextra -Werror against current main-branch headers.
+- Linker-script smoke link of the boot entry with a dummy kernel_main.
+- Multiboot2 ELF header verification.
+- Multiboot2 framebuffer request verification (1024x768x32).
+- ZIP integrity verification.
+
+Not tested:
+- Full kernel link against the complete checkout.
+- GRUB ISO generation.
+- Limbo/QEMU boot or framebuffer rendering.
+- Mouse interaction.
+- FAT32/IDE/AHCI disk operations (not part of this GUI-first overlay).

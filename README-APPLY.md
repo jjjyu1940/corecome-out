@@ -1,62 +1,46 @@
-# alpOS Ring 3 / ELF userland stage (overlay patch)
+# alpOS Graphical Desktop Stage 1
 
-This patch targets the current `main` tree. It does not merge itself into GitHub.
-Unzip at the repository root and allow the listed files to be added/replaced.
-Keep the existing `kernel/arch/x86_64/vfs.c` and `vfs.h` unchanged.
+This is a standalone overlay for `jjjyu1940/corecome-out` (`main`). It is NOT merged into GitHub.
 
-## What this stage implements
+## Apply
 
-- GDT user code/data descriptors and a 64-bit TSS with `RSP0`.
-- IDT setup and DPL3 interrupt gate at vector `0x80`.
-- A Ring 3 entry/return path using `iretq` and TSS stack switching, with a separate kernel syscall stack.
-- `int 0x80` syscall dispatcher: `write(1, user_buffer, length)` and `exit(status)`.
-- User/supervisor page-table separation: kernel huge pages are supervisor-only;
-  only the user ELF window and user stack use user-accessible 4 KiB PTEs.
-- Multiboot2 initramfs module discovery and `newc` CPIO file lookup.
-- Minimal ELF64 ET_EXEC PT_LOAD loader for `/bin/echo` and `/bin/uname`.
-- Shell fallback that executes `/bin/<command>`; explicit `exec /bin/echo ...` is also supported.
-- ISO build now embeds `userland/build/initramfs.cpio` as a GRUB Multiboot2 module.
+From the repository root, copy the overlay contents into the same paths, allowing replacement of:
+- `kernel/arch/x86_64/main.c`
+- `kernel/arch/x86_64/boot/start.S`
+- `kernel/Makefile.x86`
 
-## Build
+Add:
+- `kernel/arch/x86_64/gui/gfx.c`
+- `kernel/arch/x86_64/gui/gfx.h`
 
-On Ubuntu/Debian with the repository's existing toolchain and GRUB dependencies:
+Then run:
 
 ```sh
 make clean
 make iso
 ```
 
-The image is `kernel/build-x86/alpos.iso`. To boot interactively:
+Boot the ISO in Limbo with a video adapter that exposes a Multiboot2 RGB framebuffer. Prefer 1024x768, 32-bit color.
 
-```sh
-qemu-system-x86_64 -machine pc -m 256M \
-  -cdrom kernel/build-x86/alpos.iso -serial stdio -monitor none
-```
+## What this stage does
 
-At the shell, try:
+- Requests a 1024x768x32 Multiboot2 framebuffer.
+- Starts directly into an alpOS desktop before showing the command prompt.
+- Draws a desktop background, Files / Disk / Terminal icons, a terminal window and taskbar.
+- Routes kernel console output into the graphical terminal while retaining serial output.
+- Retains the existing shell and PS/2 keyboard polling input.
+- Falls back to VGA text output if GRUB does not provide a supported RGB framebuffer.
 
-```text
-echo hello from ring3
-/bin/echo independent ELF
-uname
-```
+## Important limitations
 
-## Important constraints of this first implementation
+This is the first graphical boot stage, not a complete desktop environment. The desktop icons are visual placeholders; mouse pointer/window dragging and click actions are not implemented yet. Keyboard input still goes to the terminal shell. The existing VFS is volatile RAM only. **FAT32, IDE/AHCI disk drivers, partition discovery, and persistent disk writes are not implemented by this overlay.** The Disk icon is a placeholder for the next storage stage.
 
-This is a bring-up implementation, not a general-purpose process environment.
-The loader uses fixed physical RAM windows at 32 MiB (up to 2 MiB for the ELF)
-and 48 MiB (16 KiB user stack), so use a machine with at least 64 MiB RAM and
-ensure those ranges are available. The loader accepts small static ELF64
-ET_EXEC files whose PT_LOAD segments fit in `[0x400000, 0x600000)`.
-The current syscall set is only `write` and `exit`; there is no scheduler,
-preemption, fork, dynamic linker, mmap, signals, user-mode filesystem API,
-per-process address space, or disk persistence. Hardware IRQs stay disabled.
-The VFS remains volatile RAM only. GCC is still a host-side cross compiler, not
-an in-OS compiler.
+The framebuffer code currently supports Multiboot2 RGB, 32-bpp framebuffers whose physical base is below 4 GiB. The kernel's current identity map covers the first 4 GiB. Limbo/QEMU boot validation is still required.
 
-## Validation boundary
+## GitHub Actions ISO build
 
-The patch is designed for compile/link/ELF/CPIO checks. A real QEMU boot and
-interactive `echo` test are required before claiming runtime success. If the
-kernel halts, inspect serial output first. Do not interpret successful ISO
-creation alone as proof that Ring 3 works.
+This overlay also adds `.github/workflows/alpos-build.yml`. After applying the overlay and committing/pushing the changes to `main`, GitHub Actions will build the kernel, userland initramfs and bootable ISO on pushes and pull requests. You can also run it manually from the repository's Actions tab using **alpOS x86_64 build** → **Run workflow**.
+
+When the workflow succeeds, open that run and download the artifact named `alpos-x86_64-iso-<commit>`. The artifact contains `alpos.iso`, the kernel ELF and the initramfs. The workflow does not push binaries back into the repository.
+
+The workflow builds the current repository contents; therefore apply this complete overlay before committing the changes. It is not enough to add only the workflow file.
