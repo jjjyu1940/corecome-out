@@ -1,0 +1,6 @@
+run=44887203066
+commit=8ed512f10bc396ecb56e3edcafaa1d431dc3a87f
+qemu=QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)
+gcc=aarch64-linux-gnu-gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+uname=Linux ip-10-0-139-37 7.0.0-1014-aws #14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+serial_bytes=0
