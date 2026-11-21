@@ -1,0 +1,89 @@
+# Makefile.x86 —— alpOS x86_64 内核构建。
+#
+# 与上游 kernel/Makefile 平级共存：上游是 aarch64 主线（make test 在
+# qemu-system-aarch64 里跑通 EL0 init + shell），本文件负责 x86_64 分支。
+# 两者共享 kernel/include/kern.h，共享 mm/vfs/sched 的 C 实现，只替换
+# arch/ 与入口。这样做的好处是 aarch64 的自检不被破坏，x86 实验可以
+# 独立演进。
+#
+# 目标：
+#   x86-build    仅编译内核 ELF，不打包 ISO（最快，CI 用）；
+#   x86-test     编译后用 qemu-system-x86_64 起一次，看是否打印到
+#                "entering core kernel"，超时就当作失败；
+#   x86-iso      编译 + 打包成 build/alpos-latest.iso；
+#   x86-clean    清 build/。
+
+CROSS     ?= x86_64-linux-gnu-
+CC         = $(CROSS)gcc
+LD         = $(CROSS)ld
+OBJCOPY    = $(CROSS)objcopy
+QEMU       = qemu-system-x86_64
+BUILD      = build
+ARCH       = arch/x86_64
+
+SRCS       = $(ARCH)/boot/start.S \
+             $(ARCH)/context/gdt.S \
+             $(ARCH)/exception/isr.S \
+             $(ARCH)/main.c \
+             $(ARCH)/console.c \
+             $(ARCH)/gdt.c \
+             $(ARCH)/idt.c \
+             $(ARCH)/pic.c \
+             $(ARCH)/panic.c \
+             $(ARCH)/usermode.c \
+             $(ARCH)/syscall.c \
+             $(ARCH)/mmu/paging.c \
+             $(ARCH)/init.c
+
+OBJS       = $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o)))
+OBJS      := $(OBJS:.S=.o)
+
+VPATH      = $(sort $(dir $(SRCS)))
+
+INCLUDES   = -I$(ARCH)/include -Iinclude
+
+CFLAGS     = -m64 -mno-red-zone -mgeneral-regs-only -mno-sse -mno-mmx \
+             -ffreestanding -fno-pic -fno-pie -fno-stack-protector \
+             -fno-builtin -nostdlib -O2 -Wall -Wextra -Werror -g
+LDFLAGS    = -T $(ARCH)/boot/link.ld -nostdlib -z max-page-size=4096 \
+             -Map=$(BUILD)/alpos.map
+
+QEMUFLAGS  = -m 256M -display none -serial file:$(BUILD)/qemu.log \
+             -kernel $(BUILD)/alpos-kernel.elf \
+             -no-reboot
+
+MKISO      = ../tools/image/mkiso.sh
+
+.PHONY: x86-build x86-test x86-iso x86-clean
+
+x86-build: $(BUILD)/alpos-kernel.elf
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD)/%.o: %.S | $(BUILD)
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD)/alpos-kernel.elf: $(OBJS)
+	$(LD) $(LDFLAGS) -o $@ $(OBJS)
+
+$(BUILD):
+	mkdir -p $@
+
+x86-test: $(BUILD)/alpos-kernel.elf
+	@rm -f $(BUILD)/qemu.log
+	@timeout 15 $(QEMU) $(QEMUFLAGS) || true
+	@if [ -s $(BUILD)/qemu.log ]; then \
+	    tail -20 $(BUILD)/qemu.log; \
+	    grep -q "entering core kernel" $(BUILD)/qemu.log \
+	        && echo "[x86-test] PASS: reached core kernel" \
+	        || echo "[x86-test] MAYBE: printed but did not reach core kernel"; \
+	else \
+	    echo "[x86-test] FAIL: no serial output"; \
+	fi
+
+x86-iso: $(BUILD)/alpos-kernel.elf
+	bash $(MKISO)
+
+x86-clean:
+	rm -rf $(BUILD)
