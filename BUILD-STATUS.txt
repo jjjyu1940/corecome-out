@@ -1,6 +1,10 @@
-alpOS Stage 2 userspace scaffold
-- Builds static ELF64 x86-64 executables: echo, uname
-- Builds SVR4 newc CPIO initramfs with /bin entries
-- ELF headers verified with readelf; archive structure verified
-- NOT YET RUNNABLE: kernel has no ring-3 transition, syscall dispatcher, ELF loader, argv stack setup, or initramfs handoff
-- Existing main branch boot source paths referenced by kernel/Makefile.x86 are absent from the tracked current kernel tree; only archived copies exist under 以前的/ and require restoration/repair before a clean full-kernel rebuild
+Stage 3: boot-path restoration
+
+PASS: start.S assembles with x86_64-linux-gnu-gcc.
+PASS: linker script links a freestanding ELF64 x86-64 test kernel.
+PASS: ELF entry is in the low .boot region at 1 MiB.
+PASS: Multiboot2 header is at file offset 4096 (< 32768).
+PASS: Multiboot2 header checksum is zero.
+PASS: high-half .text and stack have expected virtual/physical addresses.
+NOT TESTED: QEMU boot and GRUB ISO creation (tools unavailable in container).
+NOT IMPLEMENTED: Ring 3, TSS, syscalls, ELF loader, initramfs mount, disk filesystem.
