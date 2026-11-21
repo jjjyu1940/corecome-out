@@ -4,31 +4,42 @@ LD := $(CROSS)ld
 QEMU ?= qemu-system-x86_64
 BUILD := build-x86
 ARCH := arch/x86_64
-CFLAGS := -m64 -mcmodel=small -mno-red-zone -mgeneral-regs-only -mno-sse -mno-mmx \
+CFLAGS := -m64 -mcmodel=large -mno-red-zone -mgeneral-regs-only -mno-sse -mno-mmx \
           -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-builtin \
           -fno-asynchronous-unwind-tables -fno-unwind-tables -nostdlib \
           -O2 -Wall -Wextra -Werror
-.PHONY: x86-build x86-iso x86-test x86-clean
+.PHONY: x86-build x86-iso x86-test x86-clean userland
 x86-build: $(BUILD)/alpos-kernel.elf
 $(BUILD):
 	mkdir -p $@
 $(BUILD)/start.o: $(ARCH)/boot/start.S | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
-$(BUILD)/main.o: $(ARCH)/main.c $(ARCH)/vfs.h | $(BUILD)
+$(BUILD)/interrupts.o: $(ARCH)/interrupts.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/main.o: $(ARCH)/main.c $(ARCH)/vfs.h $(ARCH)/user.h $(ARCH)/descriptors.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/vfs.o: $(ARCH)/vfs.c $(ARCH)/vfs.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
-$(BUILD)/alpos-kernel.elf: $(BUILD)/start.o $(BUILD)/main.o $(BUILD)/vfs.o $(ARCH)/boot/link.ld
-	$(LD) -T $(ARCH)/boot/link.ld -nostdlib -z max-page-size=0x1000 -o $@ $(BUILD)/start.o $(BUILD)/main.o $(BUILD)/vfs.o
+$(BUILD)/user.o: $(ARCH)/user.c $(ARCH)/user.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/descriptors.o: $(ARCH)/descriptors.c $(ARCH)/descriptors.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/alpos-kernel.elf: $(BUILD)/start.o $(BUILD)/interrupts.o $(BUILD)/main.o $(BUILD)/vfs.o $(BUILD)/user.o $(BUILD)/descriptors.o $(ARCH)/boot/link.ld
+	$(LD) -T $(ARCH)/boot/link.ld -nostdlib -z max-page-size=0x1000 -o $@ $(BUILD)/start.o $(BUILD)/interrupts.o $(BUILD)/main.o $(BUILD)/vfs.o $(BUILD)/user.o $(BUILD)/descriptors.o
 	readelf -h $@ | grep -q 'Advanced Micro Devices X86-64'
 	python3 ../tools/ci/verify_multiboot.py $@
-x86-iso: x86-build
+	python3 ../tools/ci/verify_ring3_layout.py $@
+userland:
+	$(MAKE) -C ../userland initramfs
+x86-iso: x86-build userland
 	bash ../tools/image/mkiso.sh
+	python3 ../tools/ci/verify_iso.py $(BUILD)/alpos.iso $(BUILD)/alpos-kernel.elf
 x86-test: x86-iso
 	@rm -f $(BUILD)/serial.log
-	@set +e; timeout 12 $(QEMU) -machine pc -m 256M -cdrom $(BUILD)/alpos.iso -display none -serial file:$(BUILD)/serial.log -monitor none -no-reboot -no-shutdown; rc=$$?; set -e; \
+	@set +e; timeout 15 $(QEMU) -machine pc -m 256M -cdrom $(BUILD)/alpos.iso -display none -serial file:$(BUILD)/serial.log -monitor none -no-reboot -no-shutdown; rc=$$?; set -e; \
 		if [ $$rc -ne 124 ] && [ $$rc -ne 0 ]; then echo "QEMU failed: $$rc"; exit $$rc; fi
-	@grep -q '\[alpOS\] shell ready' $(BUILD)/serial.log || { echo 'x86 boot smoke test failed; serial log follows:'; cat $(BUILD)/serial.log; exit 1; }
-	@echo '[x86-test] PASS: GRUB loaded the kernel and the alpOS shell reached its prompt'
+	@grep -q '\[alpOS\] shell ready' $(BUILD)/serial.log || { echo 'x86 boot smoke test failed'; cat $(BUILD)/serial.log; exit 1; }
+	@echo '[x86-test] PASS: shell reached prompt (userland execution requires interactive test)'
 x86-clean:
 	rm -rf $(BUILD)
+	$(MAKE) -C ../userland clean

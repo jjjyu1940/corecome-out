@@ -1,43 +1,62 @@
-# alpOS x86_64 Stage 3 — restore the Multiboot2 boot path
+# alpOS Ring 3 / ELF userland stage (overlay patch)
 
-This is an overlay patch for the current `main` branch. It restores the two files
-referenced by `kernel/Makefile.x86` but absent from the tracked x86_64 boot tree:
+This patch targets the current `main` tree. It does not merge itself into GitHub.
+Unzip at the repository root and allow the listed files to be added/replaced.
+Keep the existing `kernel/arch/x86_64/vfs.c` and `vfs.h` unchanged.
 
-- `kernel/arch/x86_64/boot/start.S`
-- `kernel/arch/x86_64/boot/link.ld`
+## What this stage implements
 
-## Apply
+- GDT user code/data descriptors and a 64-bit TSS with `RSP0`.
+- IDT setup and DPL3 interrupt gate at vector `0x80`.
+- A Ring 3 entry/return path using `iretq` and TSS stack switching, with a separate kernel syscall stack.
+- `int 0x80` syscall dispatcher: `write(1, user_buffer, length)` and `exit(status)`.
+- User/supervisor page-table separation: kernel huge pages are supervisor-only;
+  only the user ELF window and user stack use user-accessible 4 KiB PTEs.
+- Multiboot2 initramfs module discovery and `newc` CPIO file lookup.
+- Minimal ELF64 ET_EXEC PT_LOAD loader for `/bin/echo` and `/bin/uname`.
+- Shell fallback that executes `/bin/<command>`; explicit `exec /bin/echo ...` is also supported.
+- ISO build now embeds `userland/build/initramfs.cpio` as a GRUB Multiboot2 module.
 
-Unzip at the repository root and merge the `kernel/` directory. Do not delete or
-replace the existing `main.c`, `vfs.c`, `vfs.h`, or Makefile.
+## Build
 
-Then run:
+On Ubuntu/Debian with the repository's existing toolchain and GRUB dependencies:
 
 ```sh
 make clean
-make
 make iso
 ```
 
-The existing workflow expects the kernel ELF at
-`kernel/build-x86/alpos-kernel.elf` and the ISO at `kernel/build-x86/alpos.iso`.
+The image is `kernel/build-x86/alpos.iso`. To boot interactively:
 
-## What this boot code does
+```sh
+qemu-system-x86_64 -machine pc -m 256M \
+  -cdrom kernel/build-x86/alpos.iso -serial stdio -monitor none
+```
 
-- Provides a valid Multiboot2 header in the first 32 KiB of the ELF.
-- Accepts the Multiboot2 boot magic and saves the boot information pointer.
-- Builds identity and high-half mappings for the first 4 GiB using 2 MiB pages.
-- Enables PAE, long mode, and paging, then jumps to the high-half alias.
-- Loads a high-half kernel stack and calls `kernel_main(magic, mbi_phys)`.
+At the shell, try:
 
-## Important limits
+```text
+echo hello from ring3
+/bin/echo independent ELF
+uname
+```
 
-This restores the boot path; it does **not** implement Ring 3, TSS, interrupt
-handling, system-call dispatch, an ELF user-process loader, or initramfs mounting.
-The second argument remains the physical Multiboot information address, matching
-the current kernel entry signature. The current VFS remains RAM-only.
+## Important constraints of this first implementation
 
-The local verification used a freestanding x86_64 stub for `kernel_main` to test
-assembly, linking, ELF type, entry address, and Multiboot2 checksum. QEMU and
-`grub-mkrescue` were not available in the build container, so actual VM/ISO boot
-is not claimed here.
+This is a bring-up implementation, not a general-purpose process environment.
+The loader uses fixed physical RAM windows at 32 MiB (up to 2 MiB for the ELF)
+and 48 MiB (16 KiB user stack), so use a machine with at least 64 MiB RAM and
+ensure those ranges are available. The loader accepts small static ELF64
+ET_EXEC files whose PT_LOAD segments fit in `[0x400000, 0x600000)`.
+The current syscall set is only `write` and `exit`; there is no scheduler,
+preemption, fork, dynamic linker, mmap, signals, user-mode filesystem API,
+per-process address space, or disk persistence. Hardware IRQs stay disabled.
+The VFS remains volatile RAM only. GCC is still a host-side cross compiler, not
+an in-OS compiler.
+
+## Validation boundary
+
+The patch is designed for compile/link/ELF/CPIO checks. A real QEMU boot and
+interactive `echo` test are required before claiming runtime success. If the
+kernel halts, inspect serial output first. Do not interpret successful ISO
+creation alone as proof that Ring 3 works.

@@ -21,5 +21,6 @@ verify: all
 	@echo '[userland] ELF64 executable checks passed'
 initramfs: verify
 	python3 ../tools/mknewc.py $(BUILD)/initramfs.cpio bin/echo=$(BUILD)/echo bin/uname=$(BUILD)/uname
+	python3 ../tools/ci/verify_userland.py $(BUILD)/initramfs.cpio
 clean:
 	rm -rf $(BUILD)

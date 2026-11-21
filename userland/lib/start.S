@@ -4,12 +4,12 @@
 .extern main
 _start:
     xor %rbp, %rbp
-    mov (%rsp), %rdi          /* argc */
-    lea 8(%rsp), %rsi         /* argv */
+    mov (%rsp), %rdi
+    lea 8(%rsp), %rsi
     and $-16, %rsp
     call main
     mov %rax, %rdi
-    mov $0, %rax
+    xor %rax, %rax
     int $0x80
 1:  pause
     jmp 1b

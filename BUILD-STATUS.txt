@@ -1,10 +1,8 @@
-Stage 3: boot-path restoration
+alpOS Ring 3 / ELF userland stage
+=================================
+Scope: TSS, user GDT, IDT vector 0x80, Ring 3 iretq transition, syscall write/exit,
+ELF64 PT_LOAD loader, newc CPIO module, and shell execution path for /bin/echo.
 
-PASS: start.S assembles with x86_64-linux-gnu-gcc.
-PASS: linker script links a freestanding ELF64 x86-64 test kernel.
-PASS: ELF entry is in the low .boot region at 1 MiB.
-PASS: Multiboot2 header is at file offset 4096 (< 32768).
-PASS: Multiboot2 header checksum is zero.
-PASS: high-half .text and stack have expected virtual/physical addresses.
-NOT TESTED: QEMU boot and GRUB ISO creation (tools unavailable in container).
-NOT IMPLEMENTED: Ring 3, TSS, syscalls, ELF loader, initramfs mount, disk filesystem.
+Known limitations: fixed physical user-memory windows (32 MiB and 48 MiB),
+small static ET_EXEC only, no scheduler, no IRQ/preemption, no disk filesystem.
+Runtime must be confirmed under QEMU; compile/ISO checks are not a boot guarantee.
