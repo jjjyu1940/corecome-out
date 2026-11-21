@@ -14,10 +14,12 @@ $(BUILD):
 	mkdir -p $@
 $(BUILD)/start.o: $(ARCH)/boot/start.S | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
-$(BUILD)/main.o: $(ARCH)/main.c | $(BUILD)
+$(BUILD)/main.o: $(ARCH)/main.c $(ARCH)/vfs.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
-$(BUILD)/alpos-kernel.elf: $(BUILD)/start.o $(BUILD)/main.o $(ARCH)/boot/link.ld
-	$(LD) -T $(ARCH)/boot/link.ld -nostdlib -z max-page-size=0x1000 -o $@ $(BUILD)/start.o $(BUILD)/main.o
+$(BUILD)/vfs.o: $(ARCH)/vfs.c $(ARCH)/vfs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/alpos-kernel.elf: $(BUILD)/start.o $(BUILD)/main.o $(BUILD)/vfs.o $(ARCH)/boot/link.ld
+	$(LD) -T $(ARCH)/boot/link.ld -nostdlib -z max-page-size=0x1000 -o $@ $(BUILD)/start.o $(BUILD)/main.o $(BUILD)/vfs.o
 	readelf -h $@ | grep -q 'Advanced Micro Devices X86-64'
 	python3 ../tools/ci/verify_multiboot.py $@
 x86-iso: x86-build

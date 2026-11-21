@@ -1,26 +1,21 @@
-Build package status
-====================
+alpOS Unix bring-up — stage 1
 
-Verified in the authoring sandbox:
-- `make` builds kernel/build-x86/alpos-kernel.elf.
-- Output is ELF64 for x86-64.
-- The Multiboot2 header validator passes.
-- The ZIP archive integrity check passes.
+Implemented in this overlay:
+- PS/2 set-1 polling keyboard input alongside COM1 serial input.
+- Shell commands: help, about, clear, mem, ls, pwd, cd, mkdir, touch, cat, reboot, halt.
+- Static in-memory VFS and initial Unix-style directory hierarchy.
+- /etc/os-release seed file.
+- Makefile compiles and links vfs.c into the x86_64 kernel.
 
-The GitHub Actions workflow has been changed so that ISO creation is an
-explicit required step (`make iso`) after ELF compilation. It verifies that
-kernel/build-x86/alpos.iso exists and is non-empty before proceeding. QEMU
-smoke testing is separate and non-blocking, so a QEMU issue cannot prevent
-uploading an ISO that was successfully created. The artifact is named
-`alpos-x86_64-elf-and-iso`.
+Validation:
+- main.c compiled with x86_64-linux-gnu-gcc and -Wall -Wextra -Werror.
+- vfs.c compiled with x86_64-linux-gnu-gcc and -Wall -Wextra -Werror.
+- Kernel linked successfully as ELF64 x86_64.
+- Existing verify_multiboot.py passed: Multiboot2 header found and checksum valid.
+- QEMU/GRUB ISO boot and interactive PS/2 input were not tested in this environment.
 
-Not verified in this sandbox:
-- Actual ISO creation, because grub-mkrescue and xorriso are not installed.
-- Actual QEMU boot.
-- Execution of the workflow on GitHub.
-
-This is a focused overlay/build snapshot, not a full export of the GitHub
-repository. Apply its root Makefile, workflow, and tools/image/mkiso.sh to the
-repository before expecting GitHub Actions to use these changes.
-
-ISO FIX: GitHub Actions now installs mtools. mkiso.sh checks for mformat (provided by mtools) before invoking grub-mkrescue.
+Not implemented yet:
+- Persistent disk filesystem / block driver / partition support.
+- Ring 3, process model, syscalls, userspace ELF loader.
+- Independent /bin command executables.
+- libc, binutils target and native GCC.
