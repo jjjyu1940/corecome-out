@@ -18,7 +18,7 @@ sudo apt-get install -y make gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
   grub-pc-bin grub-efi-amd64-bin grub-common xorriso qemu-system-x86
 ```
 
-GitHub Actions runs on pushes to `main`, relevant pull requests, and manual dispatch. It runs `make test` and uploads the ELF, ISO, and serial log as the `alpos-x86_64-build` artifact.
+GitHub Actions runs on pushes to `main`, relevant pull requests, and manual dispatch. It explicitly runs `make`, then the required `make iso` step, checks that `kernel/build-x86/alpos.iso` is non-empty, and uploads the ELF and ISO as the `alpos-x86_64-elf-and-iso` artifact. QEMU smoke testing is separate and non-blocking, so a QEMU-only failure will not suppress an already-created ISO.
 
 The included `build/alpos-kernel.elf` is a locally built ELF64 x86_64 kernel. It is not an ISO. The local environment does not have GRUB rescue tooling, xorriso, or QEMU, so ISO creation and boot testing are delegated to the GitHub Actions runner and are not claimed as locally verified.
 

@@ -1,6 +1,13 @@
-Apply this package to jjjyu1940/corecome-out (main):
-1. Copy Makefile to repository root.
-2. Replace .github/workflows/alpos-x86-iso.yml with the included workflow.
-3. Existing kernel/, iso/, and tools/ build input files in this package are snapshots of the matching main-branch paths at packaging time. They are included for reproducibility; the root Makefile and workflow are the intended changes.
-4. Run `make`, then `make iso`, then `make test` on Ubuntu 24.04 with the dependencies listed in README-OVERLAY.md.
-5. In GitHub Actions, run the workflow manually or push a commit touching the configured paths. Download the `alpos-x86_64-build` artifact after it completes.
+Apply this overlay to jjjyu1940/corecome-out (main):
+
+1. Copy this package's root Makefile to the repository root.
+2. Replace .github/workflows/alpos-x86-iso.yml with this package's version.
+3. Replace tools/image/mkiso.sh with this package's version.
+4. Ensure kernel/Makefile.x86, kernel/arch/x86_64/, iso/boot/grub/grub.cfg,
+   and tools/ci/verify_multiboot.py are present in the repository.
+5. Commit and push to main, or run the workflow manually from Actions.
+6. Open the workflow run's Artifacts section and download
+   alpos-x86_64-elf-and-iso.zip.
+
+The workflow must be run after these changes are committed. This package does
+not itself modify the remote GitHub repository.

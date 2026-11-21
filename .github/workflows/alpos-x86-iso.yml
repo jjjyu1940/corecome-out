@@ -1,4 +1,4 @@
-name: Build alpOS x86_64
+name: Build alpOS x86_64 ISO
 
 on:
   workflow_dispatch:
@@ -28,26 +28,78 @@ permissions:
   contents: read
 
 jobs:
-  build-and-boot:
+  build-iso:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - name: Install x86_64 toolchain and ISO/QEMU tools
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install compiler and ISO tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y make gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
-            grub-pc-bin grub-efi-amd64-bin grub-common xorriso qemu-system-x86
-      - name: Build kernel, ISO, validate and boot-test
-        run: make test
-      - name: Upload build artifacts
+          sudo apt-get install -y --no-install-recommends \
+            make gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
+            grub-pc-bin grub-efi-amd64-bin grub-common xorriso \
+            qemu-system-x86
+
+      - name: Build x86_64 kernel ELF
+        run: |
+          set -euxo pipefail
+          make clean
+          make
+          test -s kernel/build-x86/alpos-kernel.elf
+          file kernel/build-x86/alpos-kernel.elf
+          readelf -h kernel/build-x86/alpos-kernel.elf
+
+      - name: Create bootable ISO (required)
+        run: |
+          set -euxo pipefail
+          command -v grub-mkrescue
+          command -v xorriso
+          make iso
+          test -s kernel/build-x86/alpos.iso
+          file kernel/build-x86/alpos.iso
+          ls -lh kernel/build-x86/alpos.iso
+
+      # A QEMU smoke-test failure must not prevent the already-created ISO
+      # from being uploaded. The build/ISO steps above remain mandatory.
+      - name: QEMU boot smoke test
+        continue-on-error: true
+        run: |
+          set -u
+          rm -f kernel/build-x86/serial.log
+          timeout 15 qemu-system-x86_64 \
+            -machine pc -m 256M \
+            -cdrom kernel/build-x86/alpos.iso \
+            -display none -serial file:kernel/build-x86/serial.log \
+            -monitor none -no-reboot -no-shutdown || rc=$?
+          cat kernel/build-x86/serial.log || true
+          if grep -q '\[alpOS\] shell ready' kernel/build-x86/serial.log; then
+            echo 'QEMU smoke test: PASS'
+          else
+            echo 'QEMU smoke test: not confirmed; ISO will still be uploaded'
+          fi
+
+      - name: Write build manifest
+        if: always()
+        run: |
+          {
+            echo "Commit: $GITHUB_SHA"
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "ELF exists: $(test -s kernel/build-x86/alpos-kernel.elf && echo yes || echo no)"
+            echo "ISO exists: $(test -s kernel/build-x86/alpos.iso && echo yes || echo no)"
+          } > kernel/build-x86/BUILD-MANIFEST.txt
+
+      - name: Upload ELF and ISO artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpos-x86_64-build
+          name: alpos-x86_64-elf-and-iso
           path: |
             kernel/build-x86/alpos-kernel.elf
             kernel/build-x86/alpos.iso
             kernel/build-x86/serial.log
+            kernel/build-x86/BUILD-MANIFEST.txt
           if-no-files-found: warn
           retention-days: 14

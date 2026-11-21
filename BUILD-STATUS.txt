@@ -1,10 +1,24 @@
-Build status for this package
-============================
-PASS: `make` builds kernel/build-x86/alpos-kernel.elf in this sandbox.
-PASS: readelf identifies the output as ELF64 x86-64.
-PASS: verify_multiboot.py validates the Multiboot2 header and checksum.
-NOT RUN: ISO creation, because grub-mkrescue and xorriso are unavailable here.
-NOT RUN: QEMU boot test, because qemu-system-x86_64 is unavailable here.
+Build package status
+====================
 
-This is a focused overlay/build snapshot, not a full export of the GitHub repository.
-The repository already contains additional AArch64 and service code that is not included.
+Verified in the authoring sandbox:
+- `make` builds kernel/build-x86/alpos-kernel.elf.
+- Output is ELF64 for x86-64.
+- The Multiboot2 header validator passes.
+- The ZIP archive integrity check passes.
+
+The GitHub Actions workflow has been changed so that ISO creation is an
+explicit required step (`make iso`) after ELF compilation. It verifies that
+kernel/build-x86/alpos.iso exists and is non-empty before proceeding. QEMU
+smoke testing is separate and non-blocking, so a QEMU issue cannot prevent
+uploading an ISO that was successfully created. The artifact is named
+`alpos-x86_64-elf-and-iso`.
+
+Not verified in this sandbox:
+- Actual ISO creation, because grub-mkrescue and xorriso are not installed.
+- Actual QEMU boot.
+- Execution of the workflow on GitHub.
+
+This is a focused overlay/build snapshot, not a full export of the GitHub
+repository. Apply its root Makefile, workflow, and tools/image/mkiso.sh to the
+repository before expecting GitHub Actions to use these changes.
