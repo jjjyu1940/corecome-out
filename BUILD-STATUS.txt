@@ -1,21 +1,6 @@
-alpOS Unix bring-up — stage 1
-
-Implemented in this overlay:
-- PS/2 set-1 polling keyboard input alongside COM1 serial input.
-- Shell commands: help, about, clear, mem, ls, pwd, cd, mkdir, touch, cat, reboot, halt.
-- Static in-memory VFS and initial Unix-style directory hierarchy.
-- /etc/os-release seed file.
-- Makefile compiles and links vfs.c into the x86_64 kernel.
-
-Validation:
-- main.c compiled with x86_64-linux-gnu-gcc and -Wall -Wextra -Werror.
-- vfs.c compiled with x86_64-linux-gnu-gcc and -Wall -Wextra -Werror.
-- Kernel linked successfully as ELF64 x86_64.
-- Existing verify_multiboot.py passed: Multiboot2 header found and checksum valid.
-- QEMU/GRUB ISO boot and interactive PS/2 input were not tested in this environment.
-
-Not implemented yet:
-- Persistent disk filesystem / block driver / partition support.
-- Ring 3, process model, syscalls, userspace ELF loader.
-- Independent /bin command executables.
-- libc, binutils target and native GCC.
+alpOS Stage 2 userspace scaffold
+- Builds static ELF64 x86-64 executables: echo, uname
+- Builds SVR4 newc CPIO initramfs with /bin entries
+- ELF headers verified with readelf; archive structure verified
+- NOT YET RUNNABLE: kernel has no ring-3 transition, syscall dispatcher, ELF loader, argv stack setup, or initramfs handoff
+- Existing main branch boot source paths referenced by kernel/Makefile.x86 are absent from the tracked current kernel tree; only archived copies exist under 以前的/ and require restoration/repair before a clean full-kernel rebuild
