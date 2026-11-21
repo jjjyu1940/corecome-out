@@ -36,12 +36,6 @@ typedef struct tcb {
     u64 code;               /* 退出码：僵尸态留给父进程收 */
     u64 wake_tick;          /* sleep：到点唤醒的 tick；0 = 不按时间唤醒 */
     int wait_pid;           /* wait：等哪个 pid（-1 = 任意） */
-    /* ---- 类 Unix 进程属性（M6）---- */
-    int uid;                /* 真实/有效 uid；当前无 setuid 语义，两者同值 */
-    int gid;                /* 真实/有效 gid */
-    int umask;              /* 文件创建掩码（八进制，如 022） */
-    int pgid;               /* 进程组 id：默认等于 pid */
-    char cwd[64];           /* 当前工作目录 */
 } tcb_t;
 
 extern void switch_to(tcb_t *prev, tcb_t *next);
@@ -84,12 +78,6 @@ void sched_init(void)
     tcbs[0].pid = 0;
     tcbs[0].ppid = -1;
     tcbs[0].tgid = 0;
-    tcbs[0].uid = 0;
-    tcbs[0].gid = 0;
-    tcbs[0].umask = 022;
-    tcbs[0].pgid = 0;
-    tcbs[0].cwd[0] = '/';
-    tcbs[0].cwd[1] = '\0';
     name_copy(tcbs[0].name, "kmain");
     tcbs[0].state = ST_RUN;
     cur = &tcbs[0];
@@ -120,13 +108,6 @@ int kthread_create(const char *name, void (*fn)(void *), void *arg)
     t->daif = 0;
     t->fp = 0;
     t->lr = (u64)&thread_boot;
-    /* 内核线程继承 root 身份；用户进程在 user_enter 路径上再改成调用者 */
-    t->uid = 0;
-    t->gid = 0;
-    t->umask = 022;
-    t->pgid = (int)t->pid;
-    t->cwd[0] = '/';
-    t->cwd[1] = '\0';
 
     /* 栈顶伪造一份 trap frame：x0=arg，x30=0，elr=entry，spsr=EL1h */
     frame = (u64 *)((u8 *)&stacks[nth][0] + STACK_SZ - 288);
@@ -346,21 +327,6 @@ static int sched_spawn(u64 *f, u64 *l1, u64 ftab, const char *nm,
     t->daif = 0;
     t->fp = f[29];
     t->lr = (u64)&thread_boot;
-    /* 继承父进程身份（类 Unix 的 fork 语义）：fork/clone 的孩子都是同一身份。
-     * 新程序 exec 后身份不变（当前无 setuid 语义，不做变更）。 */
-    t->uid = cur->uid;
-    t->gid = cur->gid;
-    t->umask = cur->umask;
-    t->pgid = tgid > 0 ? tgid : (int)t->pid; /* 线程共享父 pgid；新进程自己一组 */
-    {
-        const char *c = cur->cwd;
-        char *d = t->cwd;
-        int i = 0;
-        while (*c && i < 63) {
-            d[i++] = *c++;
-        }
-        d[i] = '\0';
-    }
     frame = (u64 *)((u8 *)&stacks[nth][0] + STACK_SZ - 288);
     for (i = 0; i < 36; i++) {
         frame[i] = f[i];
@@ -627,207 +593,23 @@ void sched_set_ftab(u64 ftab)
     }
 }
 
-/*
- * 按 pid 返回 tcb 指针，给 procfs 用。找不到返回 (tcb_t *)0。
- * pid 允许负数（如 ppid=-1 的 init 父），这里一律返回 0。
- */
-tcb_t *sched_tcb_by_pid(int pid)
-{
-    int i;
-
-    if (pid < 0) return (tcb_t *)0;
-    for (i = 0; i < KTHREAD_MAX; i++) {
-        if (tcbs[i].pid == pid) return &tcbs[i];
-    }
-    return (tcb_t *)0;
-}
-
 /* ps：进程视角的一行一条 */
 void ps_dump(void)
 {
     static const char *st[5] = { "free", "ready", "run", "exit", "zombie" };
     int i;
 
-    printk("PID PPID PGID UID STATE  CWD        NAME\n");
+    printk("PID PPID STATE  CODE NAME\n");
     for (i = 0; i < nth; i++) {
         tcb_t *t = &tcbs[i];
 
         if (t->pid < 0) {
             continue;
         }
-        printk("%u %u %u %u %s %-10s %s\n", (u32)t->pid,
-               (u32)(t->ppid < 0 ? 0 : t->ppid), (u32)t->pgid, (u32)t->uid,
+        printk("%u %u %s %u %s\n", (u32)t->pid,
+               (u32)(t->ppid < 0 ? 0 : t->ppid),
                (t->state >= 0 && t->state <= 4) ? st[t->state] : "?",
-               t->cwd, t->name);
-    }
-}
-
-/* ---- 类 Unix 进程属性访问器（M6）----
- * 全部以当前线程 cur 为对象；内核线程（cur==0）一律返回 0 / 根目录。 */
-
-int sched_getuid(void)
-{
-    return cur == (tcb_t *)0 ? 0 : (int)cur->uid;
-}
-
-int sched_getgid(void)
-{
-    return cur == (tcb_t *)0 ? 0 : (int)cur->gid;
-}
-
-int sched_getumask(void)
-{
-    if (cur == (tcb_t *)0) return 022;
-    return cur->umask;
-}
-
-int sched_setumask(int m)
-{
-    int old = sched_getumask();
-    if (cur != (tcb_t *)0) {
-        cur->umask = m & 0777;
-    }
-    return old;
-}
-
-int sched_getpgid(void)
-{
-    return cur == (tcb_t *)0 ? 0 : (int)cur->pgid;
-}
-
-int sched_setpgid(int pid, int pgid)
-{
-    int i;
-
-    /* pid == 0：操作自己；否则操作同进程组（当前仅允许自己） */
-    if (pid != 0 && pid != (int)cur->pid) {
-        return -1;
-    }
-    if (pgid < 0) {
-        return -1;
-    }
-    if (cur == (tcb_t *)0) return -1;
-    if (pgid == 0) pgid = (int)cur->pid;
-    for (i = 0; i < KTHREAD_MAX; i++) {
-        if (tcbs[i].pid == (int)cur->pid) {
-            tcbs[i].pgid = pgid;
-        }
-    }
-    cur->pgid = pgid;
-    return 0;
-}
-
-const char *sched_getcwd(char *buf, u64 cap)
-{
-    if (cur == (tcb_t *)0 || buf == (char *)0 || cap == 0) {
-        return (const char *)0;
-    }
-    {
-        u64 i = 0;
-        while (cur->cwd[i] != '\0' && i + 1 < cap) {
-            buf[i] = cur->cwd[i];
-            i++;
-        }
-        buf[i] = '\0';
-        return buf;
-    }
-}
-
-/*
- * 把任意路径规范化成一个绝对路径写到 buf（最多 cap-1 字节 + \0）。
- * 支持："/" 开头为绝对；"." ".." 组件；结尾多余 "/"。
- * 不解析符号链接（当前 VFS 无软链接）。
- * 返回写入长度（不含结尾 \0），失败返回 -1。
- */
-int sched_fullpath(const char *path, char *buf, u64 cap)
-{
-    char work[128];
-    u64 w = 0;      /* work 中已写入的字符数（含可能暂存的多个组件） */
-    u64 i;
-    int root = 0;
-
-    if (path == (const char *)0 || buf == (char *)0 || cap < 2) {
-        return -1;
-    }
-    if (path[0] == '/') {
-        root = 1;
-    } else {
-        /* 相对路径：以 cwd 打底 */
-        const char *c = cur != (tcb_t *)0 ? cur->cwd : "/";
-        while (*c && w < sizeof(work) - 1) {
-            work[w++] = *c++;
-        }
-    }
-    i = 0;
-    if (!root) i = 0;
-    while (path[i] != '\0') {
-        char comp[24];
-        u64 n = 0;
-
-        while (path[i] == '/') {
-            i++;
-            if (root && w == 0) {
-                work[w++] = '/'; /* 保留单根斜杠 */
-            }
-        }
-        if (path[i] == '\0') break;
-        while (path[i] != '/' && path[i] != '\0' && n + 1 < sizeof(comp)) {
-            comp[n++] = path[i++];
-        }
-        comp[n] = '\0';
-        if (n == 0) continue;
-        if (n == 1 && comp[0] == '.') continue; /* 跳过 "." */
-        if (n == 2 && comp[0] == '.' && comp[1] == '.') {
-            /* 回退一个组件 */
-            if (w > 1) {
-                while (w > 1 && work[w - 1] != '/') w--;
-                if (work[w - 1] == '/' && w > 1) w--;
-            }
-            continue;
-        }
-        if (w == 0 || (w == 1 && work[0] == '/')) {
-            if (w == 1) w = 0;
-        } else {
-            if (w > 0 && work[w - 1] != '/') work[w++] = '/';
-        }
-        for (u64 k = 0; k < n && w < sizeof(work) - 1; k++) {
-            work[w++] = comp[k];
-        }
-    }
-    if (w == 0) {
-        work[w++] = '/';
-    }
-    if (w > 1 && work[w - 1] == '/') w--; /* 去掉末尾多余斜杠 */
-    work[w] = '\0';
-    {
-        u64 k = 0;
-        while (k < w && k + 1 < cap) {
-            buf[k] = work[k];
-            k++;
-        }
-        buf[k] = '\0';
-        return (int)k;
-    }
-}
-
-int sched_setcwd(const char *path)
-{
-    char abs[128];
-    int len;
-
-    if (path == (const char *)0 || cur == (tcb_t *)0) return -1;
-    len = sched_fullpath(path, abs, sizeof(abs));
-    if (len < 0) return -1;
-    /* 必须真的存在且是目录 */
-    if (vfs_access(abs) < 0) return -1;
-    {
-        u64 i = 0;
-        while (i < (u64)len && i + 1 < sizeof(cur->cwd)) {
-            cur->cwd[i] = abs[i];
-            i++;
-        }
-        cur->cwd[i] = '\0';
-        return 0;
+               (u32)t->code, t->name);
     }
 }
 void sched_dump(void)

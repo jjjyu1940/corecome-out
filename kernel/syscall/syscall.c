@@ -43,26 +43,6 @@
 #define SYS_ACCESS 29
 #define SYS_SIGNAL 31
 
-/* 类 Unix 扩展（M6）。
- * 注意：33 之前的号是内核现状（1..32），新增从 33 起排，避免与已分配号冲突。
- * libc/libc.h 与内核这两张表必须同步修改。 */
-#define SYS_CHDIR      33
-#define SYS_GETCWD     34
-#define SYS_UMASK      35
-#define SYS_GETUID     36
-#define SYS_GETGID     37
-#define SYS_SIGACTION  38
-#define SYS_SIGPROCMASK 39
-#define SYS_MMAP       40
-#define SYS_MUNMAP     41
-#define SYS_DUP2       42
-#define SYS_FCNTL      43
-#define SYS_FSTAT      44
-#define SYS_GETPGID    45
-#define SYS_SETPGID    46
-#define SYS_IOCTL      47
-#define SYS_MOUNT      48
-
 extern u64 heap_used(void);
 
 /* 返回值 -2 = EFAULT：调用没通过参数校验，不是“功能没实现”。 */
@@ -257,108 +237,6 @@ u64 syscall_dispatch(u64 nr, u64 a0, u64 a1, u64 a2)
         return (u64)(i64)sched_pid();
     case SYS_KILL:
         return (u64)(i64)sched_kill((int)a0, (int)a1);
-    /* ==================== 类 Unix 扩展（M6）==================== */
-    case SYS_CHDIR:
-        if (g_from_el0) {
-            char path[VFS_PATH_MAX];
-            if (u_str(a0, path, sizeof(path)) < 0) {
-                return deny(nr, a0);
-            }
-            return (u64)(i64)sched_setcwd(path);
-        }
-        return (u64)(i64)sched_setcwd((const char *)a0);
-    case SYS_GETCWD:
-        if (g_from_el0 && !u_ok(a0, a1)) {
-            return deny(nr, a0);
-        }
-        return (u64)(i64)sched_getcwd((char *)a0, a1);
-    case SYS_UMASK:
-        return (u64)(i64)sched_setumask((int)a0);
-    case SYS_GETUID:
-        return (u64)(i64)sched_getuid();
-    case SYS_GETGID:
-        return (u64)(i64)sched_getgid();
-    case SYS_GETPGID:
-        return (u64)(i64)sched_getpgid();
-    case SYS_SETPGID:
-        return (u64)(i64)sched_setpgid((int)a0, (int)a1);
-    case SYS_DUP2: {
-        int r = (int)vfs_dup2((int)a0, (int)a1);
-        return r < 0 ? (u64)-1 : (u64)(i64)r;
-    }
-    case SYS_FSTAT: {
-        if (g_from_el0 && !u_ok(a1, a2)) {
-            return deny(nr, a1);
-        }
-        return (u64)(i64)vfs_fstat((int)a0, a1, a2);
-    }
-    case SYS_IOCTL: {
-        /* ioctl 命令里常带用户指针，但当前只支持无指针命令（TIOCGWINSZ 等），
-         * 直接把 arg 当整数传，避免引入 copyin 复杂度。 */
-        return (u64)(i64)vfs_ioctl((int)a0, a1, a2);
-    }
-    case SYS_MOUNT:
-        if (g_from_el0) {
-            char src[VFS_PATH_MAX];
-            char tgt[VFS_PATH_MAX];
-            char type[16];
-            if (u_str(a0, src, sizeof(src)) < 0 ||
-                u_str(a1, tgt, sizeof(tgt)) < 0 ||
-                u_str(a2, type, sizeof(type)) < 0) {
-                return deny(nr, a0);
-            }
-            return (u64)(i64)vfs_mount(src, tgt, type);
-        }
-        return (u64)(i64)vfs_mount((const char *)a0, (const char *)a1,
-                                   (const char *)a2);
-    /* 内存管理：当前页池仅 256 页，mmap 作为用户堆延伸的简易实现 */
-    case SYS_MMAP: {
-        /* a0=addr(忽略) a1=len a2=prot a3=flags a4=fd a5=off ——
-         * dispatch 只传 3 参，多参调用改走 do_sync 全帧路径。
-         * 这里只实现匿名私有映射（flags & 0x20），其他返回 ENOSYS。 */
-        u64 len = a1;
-        int prot = (int)a2;
-        int flags = (int)a3;
-        void *p;
-
-        if (len == 0 || (len & 4095UL) != 0) {
-            return EFAULT_; /* 要求页对齐 */
-        }
-        if ((flags & 0x20) == 0) { /* MAP_ANONYMOUS */
-            return (u64)-1; /* ENOSYS：文件映射暂不支持 */
-        }
-        p = (void *)mm_page_alloc(); /* 当前一页一请求，简化 */
-        if (p == (void *)0) return (u64)-1;
-        {
-            u64 attr = PG_USER_RW;
-            if (prot & 1) attr = PG_USER_RW;      /* PROT_READ */
-            if (prot & 4) attr = PG_USER_RX;      /* PROT_EXEC，不可写 */
-            if (pg_map_user(sched_get_l1(), (u64)p, (u64)p, attr) != 0) {
-                mm_page_free(p);
-                return (u64)-1;
-            }
-        }
-        return (u64)p;
-    }
-    case SYS_MUNMAP: {
-        /* 当前只支持整页归还；不拆半页映射。 */
-        if (a0 == 0 || (a0 & 4095UL) != 0 || (a1 & 4095UL) != 0) {
-            return EFAULT_;
-        }
-        mm_page_free((void *)a0);
-        return 0;
-    }
-    /* sigaction/sigprocmask 由 do_sync 走全帧路径（需改 handler 表），
-     * dispatch 只处理这两个的极简版：参数在 a0/a1，无帧访问需求。 */
-    case SYS_SIGACTION: {
-        /* a0=sig a1=act指针。当前内核已支持 per-signal handler，
-         * 直接复用 sched_set_handler；mask/sa_flags 暂忽略。 */
-        return (u64)(i64)sched_set_handler((int)a0, a1);
-    }
-    case SYS_SIGPROCMASK: {
-        /* 当前内核没有信号掩码实现，保持空操作、返回成功（POSIX 允许） */
-        return 0;
-    }
     default:
         return (u64)-1; /* ENOSYS */
     }

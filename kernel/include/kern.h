@@ -130,19 +130,6 @@ int sched_pid(void);
 int sched_ppid(void);
 u64 sched_get_ftab(void);
 void sched_set_ftab(u64 ftab);
-/* procfs 用：按 pid 查 tcb，找不到返回 NULL。 */
-tcb_t *sched_tcb_by_pid(int pid);
-/* 类 Unix 进程属性（M6） */
-int sched_getuid(void);
-int sched_getgid(void);
-int sched_getumask(void);
-int sched_setumask(int m);
-int sched_getpgid(void);
-int sched_setpgid(int pid, int pgid);
-const char *sched_getcwd(char *buf, u64 cap);
-int sched_setcwd(const char *path);
-/* 路径解析：相对路径 -> 绝对路径，返回写入 buf 的长度（不含结尾\0） */
-int sched_fullpath(const char *path, char *buf, u64 cap);
 struct filetable;
 struct filetable *vfs_ftab_new(void);
 struct filetable *vfs_ftab_clone(void);
@@ -196,14 +183,5 @@ i64 vfs_rename(const char *oldp, const char *newp);
 i64 vfs_dup(int fd);
 i64 vfs_pipe(int out[2]);
 i64 vfs_unlink(const char *path);
-/* 类 Unix 新增（M6）：chdir / getcwd / umask / cred / fstat / dup2 / ioctl / mount / procfs */
-i64 vfs_chdir(const char *path);
-i64 vfs_getcwd(char *buf, u64 cap);
-i64 vfs_dup2(int oldfd, int newfd);
-i64 vfs_fstat(int fd, u64 buf, u64 n);
-i64 vfs_ioctl(int fd, u64 req, u64 arg);
-i64 vfs_mount(const char *src, const char *tgt, const char *fstype);
-void procfs_init(void);
-void devfs_init(void);
 
 #endif
