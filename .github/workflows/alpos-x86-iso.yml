@@ -1,0 +1,48 @@
+name: Build alpOS x86_64 ISO
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/Makefile.x86'
+      - 'iso/**'
+      - 'tools/image/**'
+      - 'tools/ci/**'
+      - '.github/workflows/alpos-x86-iso.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/Makefile.x86'
+      - 'iso/**'
+      - 'tools/image/**'
+      - 'tools/ci/**'
+      - '.github/workflows/alpos-x86-iso.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install x86_64 toolchain and ISO/QEMU tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
+            grub-pc-bin grub-efi-amd64-bin grub-common xorriso qemu-system-x86
+      - name: Build, validate ISO, and boot in QEMU
+        run: make -C kernel -f Makefile.x86 x86-test
+      - name: Upload ISO and boot log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpos-x86_64-iso
+          path: |
+            kernel/build-x86/alpos.iso
+            kernel/build-x86/serial.log
+          if-no-files-found: warn
+          retention-days: 14
