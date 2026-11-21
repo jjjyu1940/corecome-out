@@ -11,3 +11,5 @@ Apply this overlay to jjjyu1940/corecome-out (main):
 
 The workflow must be run after these changes are committed. This package does
 not itself modify the remote GitHub repository.
+
+IMPORTANT: This revision adds the Ubuntu package mtools to the Actions dependencies. It provides mformat, required by grub-mkrescue. Replace the workflow and tools/image/mkiso.sh on main, then rerun Actions.

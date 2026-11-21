@@ -22,3 +22,5 @@ Not verified in this sandbox:
 This is a focused overlay/build snapshot, not a full export of the GitHub
 repository. Apply its root Makefile, workflow, and tools/image/mkiso.sh to the
 repository before expecting GitHub Actions to use these changes.
+
+ISO FIX: GitHub Actions now installs mtools. mkiso.sh checks for mformat (provided by mtools) before invoking grub-mkrescue.
