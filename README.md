@@ -1,5 +1,5 @@
 # alpOS — corecome-out Kernel Prototype / alpOS 内核原型系统
-
+This is based on https://github.com/110we/corecome-out The developed operating system. Right now, he's just a circle.This is just a prototype.
 **English | [简体中文](#简体中文)**
 
 > alpOS is the first prototype system built on the `corecome-out` kernel project. It is an experimental platform for people who want to learn about and collaboratively develop operating systems. **It is not a usable, production-ready operating system or a Linux distribution.**
