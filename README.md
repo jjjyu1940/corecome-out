@@ -1,147 +1,143 @@
-# corecome-out
+# alpOS — corecome-out Kernel Prototype / alpOS 内核原型系统
 
-> 一个面向 x86 / x86_64 的实验性内核与最小可引导系统，由 AI 辅助开发，目标是跑通「 bootloader → kernel → userland shell 」这条最小闭环。
+**English | [简体中文](#简体中文)**
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.0.5-brightgreen)](https://github.com/jjjyu1940/corecome-out/releases)
+> alpOS is the first prototype system built on the `corecome-out` kernel project. It is an experimental platform for people who want to learn about and collaboratively develop operating systems. **It is not a usable, production-ready operating system or a Linux distribution.**
 
----
+## Project purpose
 
-## 这是什么
+The project provides a small bootable starting point: bootloader, x86_64 kernel, basic console/graphical framebuffer output, early keyboard input, and a minimal userland. The intention is to let contributors modify, replace, and extend system components, much like communities build different distributions (for example Debian) on top of the Linux kernel. alpOS itself is a prototype base, not a finished distribution.
 
-`corecome-out` 不是一个发行版，而是一个**从零搭起来的 x86 内核骨架 + 最小用户态**，用来验证以下几件事能不能真的在裸机 / 模拟器上跑起来：
+## AI use and AI-assisted development
 
-- GRUB 引导一个自写的 64 位内核
-- 内核里做 VGA 文本模式输出、光标管理
-- PS/2 键盘轮询输入（暂不走 IRQ1）
-- 跳到 userland，起一个最简 shell
-- 用 `make iso` 一键产出可引导 `.iso`
+**AI was used in this project.** ChatGPT and other AI-assisted tools may be used to draft code, explain architecture, propose patches, generate tests and documentation, and help diagnose build or boot failures. Human contributors must review generated changes, run builds and emulator tests, and clearly report unverified behavior. AI-generated code is not automatically correct; do not treat an AI suggestion or a successful compile as proof that a feature works.
 
-项目**大量借助 ChatGPT 生成初版代码**，再由人工修 bug、调寄存器、调 Limbo 兼容性。所以你会看到 commit message 里有「由 chatGPT 接手」「二次根式?」这类痕迹——这是真实开发过程，没藏。
+Suggested workflow for developing with AI:
+1. Clone the repository and identify the exact source files and current build instructions.
+2. Ask an AI assistant to explain a small subsystem (for example boot, framebuffer, keyboard, memory, or filesystem) before requesting changes.
+3. Give the assistant the relevant source files, compiler output, serial log, and emulator configuration. Never rely on an invented repository layout.
+4. Request a small, reviewable patch with a list of changed files, assumptions, and known limitations.
+5. Build locally or with GitHub Actions; run QEMU/Limbo tests where possible.
+6. Inspect the diff, keep working backups, document what was and was not tested, then submit a pull request.
+7. Iterate: use test failures and logs as evidence, not guesses.
 
-## 当前状态
+AI is a development aid, not a substitute for understanding, review, testing, or maintainer responsibility. Do not paste secrets, access tokens, private keys, or personal data into AI tools.
 
-| 维度 | 情况 |
-|---|---|
-| 架构 | x86_64（保留 `x86 corecome-out kernel old` 作为早期 x86 产物） |
-| 引导 | GRUB / ISO9660 |
-| 显示 | VGA 文本模式 80×25，光标跟随输入位置 |
-| 输入 | PS/2 轮询（set-1 翻译，`0xF4` 使能扫描） |
-| 用户态 | `userland/` 下有最简 shell |
-| 中断 | **未接管 IRQ1**，仍为轮询模型 |
-| 测试环境 | Limbo Emulator（Android）、QEMU |
-| 成熟度 | 🔬 实验性，能 boot 到 shell 提示符，别拿去干正事 |
+## Current prototype status
 
-## 目录结构
+- Target: x86_64, booted through GRUB/Multiboot2.
+- First interface: full-screen text terminal drawn on the framebuffer when a supported framebuffer is provided; VGA text fallback remains.
+- Input: early PS/2 polling and optional serial input path; device behavior depends on emulator configuration.
+- Userland: experimental ELF64 loading/syscall work may be present in the current branch.
+- Storage: no claim of a complete persistent disk/filesystem implementation.
+- Maturity: educational and experimental only. Expect missing features, bugs, regressions, and incompatible hardware.
 
-```
-.
-├── kernel/                  # 内核源码（arch/x86_64/main.c 等）
-├── userland/                # 最小用户态程序 / shell
-├── build/                   # 构建中间产物
-├── elf/                     # ELF 相关处理
-├── iso/boot/grub/           # GRUB 配置与 ISO 布局
-├── tools/                   # 辅助脚本
-│   └── apply-limbo-input-fix.py
-├── x86 corecome-out kernel old/   # 早期 x86 版归档
-├── start.o / stub.o / stub.c      # 引导桩
-├── test.elf
-├── Makefile                 # 顶层构建入口
-├── APPLY-TO-REPOSITORY.txt
-├── BUILD-STATUS.txt
-├── GITHUB-ACTIONS.md
-└── LICENSE                  # AGPL-3.0
-```
+## Build locally
 
-## 构建
+On Ubuntu/Debian, install the toolchain (package names can vary by release):
 
-依赖（Debian / Ubuntu 系）：
-
-```bash
-sudo apt install build-essential grub-common xorriso nasm
-```
-
-一键出 ISO：
-
-```bash
-git clone https://github.com/jjjyu1940/corecome-out.git
-cd corecome-out
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
+  grub-pc-bin grub-common xorriso mtools python3
 make clean
 make iso
 ```
 
-产物在仓库根目录，形如 `*.iso`。
+The expected ISO path for the current x86 build is `kernel/build-x86/alpos.iso`.
 
-### Limbo 输入修复补丁（可选）
+## GitHub Actions build
 
-如果你在 **Limbo Emulator** 里遇到「能显示但键盘打不进去 / 光标不动」，先打这个 overlay 再构建：
+The workflow in `.github/workflows/alpos-build.yml` runs on pushes to `main`/`master`, pull requests, and manual dispatch. It installs the cross compiler and ISO tools, builds the kernel and initramfs, runs the repository's smoke checks, and uploads the ISO and ELF/initramfs outputs as an Actions artifact. Open the repository's **Actions** tab, select the `alpOS x86_64 build` workflow, open a successful run, and download `alpos-x86_64-gui-iso` under **Artifacts**. A green workflow means the configured build/check steps passed; it does not prove all hardware features work.
 
-```bash
-python3 tools/apply-limbo-input-fix.py
+## Run in QEMU
+
+```sh
+qemu-system-x86_64 -machine pc -m 256M -cdrom kernel/build-x86/alpos.iso -serial stdio
+```
+
+For Limbo, create an x86_64 virtual machine and attach the ISO as its CD-ROM. Keyboard/mouse delivery depends on the selected machine and input-device settings.
+
+## Contributing
+
+This repository is intended as a shared operating-system development prototype. Contributions are welcome in boot, console, input, memory management, drivers, filesystems, userland, build tooling, tests, and documentation. Prefer small pull requests with reproducible build/test logs and explicit limitations.
+
+## Disclaimer
+
+**Not a usable operating system. Not for production or important data.** Features may be incomplete, non-persistent, unsafe, or untested. Back up your work and use disposable virtual disks.
+
+## License
+
+See [`LICENSE`](LICENSE).
+
+---
+
+# 简体中文
+
+> alpOS 是基于 `corecome-out` 内核项目开发的**第一个原型系统**。它是一个供操作系统爱好者学习、实验和协作开发的起点。**它不是可实际使用的成熟操作系统，也不是可用于生产环境的系统或 Linux 发行版。**
+
+## 项目定位
+
+本项目提供一个最小可启动基础，包括引导流程、x86_64 内核、基础控制台/Framebuffer 图形输出、早期键盘输入和最小用户态。项目希望让开发者能够共同修改、替换和扩展系统组件。它的协作模式可以类比为：不同社区基于 Linux 内核开发不同发行版，例如 Debian；不同开发者也可以基于本原型继续构建自己的操作系统。alpOS 是原型底座，不是已经完成的发行版。
+
+## AI 使用声明与 AI 辅助开发方法
+
+**本项目明确使用了 AI 辅助开发。** 项目开发过程中使用 ChatGPT 等 AI 工具辅助编写初版代码、解释系统架构、提出补丁、生成测试与文档，以及分析编译错误和启动日志。所有 AI 生成或建议的代码都需要开发者审查，并通过实际编译和模拟器测试验证。AI 输出不保证正确；编译成功也不代表功能已经能够正常工作。
+
+推荐的 AI 辅助开发流程：
+1. 克隆仓库，先确认当前分支、真实目录结构和构建方法。
+2. 先让 AI 解释一个具体子系统，例如引导、Framebuffer、键盘、内存管理或文件系统，再提出修改要求。
+3. 向 AI 提供相关源码、完整编译输出、串口日志和模拟器配置；不要让 AI 猜测不存在的文件或接口。
+4. 要求 AI 提交范围小、便于审查的补丁，并列出修改文件、设计假设和已知限制。
+5. 使用本地环境或 GitHub Actions 编译；条件允许时再用 QEMU/Limbo 实际启动测试。
+6. 检查代码差异，保留备份，记录哪些功能已经验证、哪些尚未验证，然后再提交 Pull Request。
+7. 根据真实测试日志持续迭代，不要用猜测代替证据。
+
+AI 是开发辅助工具，不能代替开发者理解代码、审查、测试和承担维护责任。不要向 AI 工具提交密码、访问令牌、私钥或个人敏感信息。
+
+## 当前原型状态
+
+- 目标架构：x86_64，通过 GRUB/Multiboot2 引导。
+- 首个界面：在引导器提供受支持的 framebuffer 时绘制全屏终端；同时保留 VGA 文本回退。
+- 输入：早期 PS/2 轮询，并保留可选串口输入路径；设备是否可用取决于模拟器配置。
+- 用户态：当前分支可能包含实验性的 ELF64 加载和系统调用代码。
+- 存储：目前不宣称已经具备完整、可靠、可持久化的硬盘和文件系统实现。
+- 成熟度：仅供学习和实验，可能存在缺失功能、错误、回归问题及硬件兼容性问题。
+
+## 本地编译
+
+Ubuntu/Debian 可安装以下工具（不同发行版的包名可能略有差异）：
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
+  grub-pc-bin grub-common xorriso mtools python3
 make clean
 make iso
 ```
 
-这个补丁做了三件事：
+当前 x86 构建预期生成：`kernel/build-x86/alpos.iso`。
 
-1. 编程 VGA CRT Controller 光标寄存器，让光标跟着 shell 输入位置走
-2. 打开第一个 PS/2 端口，启用 set-1 翻译，显式发 `0xF4` 开扫描
-3. **不改中断控制器**，输入仍然是轮询
+## GitHub Actions 自动编译
 
-> ⚠️ 该补丁基于当前 `main` 分支的 `kernel/arch/x86_64/main.c`，未在 Limbo/QEMU 上做过回归测试。打完还不行的话，抓一下 Limbo 的键盘设置截图和串口输出——有些模拟器配置对 PS/2 的暴露方式不一样。
+`.github/workflows/alpos-build.yml` 工作流会在推送到 `main`/`master`、Pull Request 或手动触发时运行。它会安装交叉编译器和 ISO 工具，编译内核及 initramfs，执行仓库配置的检查，并将 ISO、ELF 和 initramfs 上传为 Actions Artifact。打开仓库的 **Actions** 页面，选择 `alpOS x86_64 build`，进入成功的运行记录，在 **Artifacts** 下载 `alpos-x86_64-gui-iso`。工作流变绿只表示配置的构建与检查步骤通过，不代表所有硬件功能均已验证。
 
-## 运行
+## 使用 QEMU 运行
 
-**Limbo（Android）**
-
-1. 新建虚拟机，CPU 选 x86、内存 32~64MB
-2. CD-ROM 挂载刚刚 `make iso` 出来的镜像
-3. 启动后**点一下屏幕里的终端区拿到焦点**，再用 Limbo 的键盘按钮唤起软键盘
-4. 建议装 `Hacker's Keyboard`，透明主题 + Direct Draw
-
-**QEMU**
-
-```bash
-qemu-system-x86_64 -cdrom <你的iso> -m 64M -serial stdio
+```sh
+qemu-system-x86_64 -machine pc -m 256M -cdrom kernel/build-x86/alpos.iso -serial stdio
 ```
 
-## 已知限制
+使用 Limbo 时，创建 x86_64 虚拟机并将 ISO 挂载为 CD-ROM。键盘和鼠标能否传入取决于虚拟机机型及输入设备设置。
 
-- 没有分页 / 没有真正的进程调度，userland 是「跳过去执行」不是「系统调用切回来」
-- 键盘是轮询，占 CPU，长按会刷
-- 没有文件系统，没有磁盘驱动
-- Limbo 下软键盘映射因机型而异，部分设备需要换 IME
-- commit 历史比较野，建议看 tag（`v0.0.5` 及之前）而不是 `main` 最新一条
+## 参与开发
 
-## 路线图
+本仓库定位为一个开放的操作系统原型开发项目。欢迎围绕引导、控制台、输入、内存管理、驱动、文件系统、用户态、构建工具、测试和文档提交贡献。建议每个 Pull Request 尽量小，并附上可复现的编译/测试日志和明确的功能限制。
 
-- [ ] IRQ1 中断式键盘，替掉轮询
-- [ ] 简易 IDT/PIC 完整初始化
-- [ ] userland 通过 syscall 回内核（而不是裸跳转）
-- [ ] 串口日志分级（`BUILD-STATUS.txt` 目前是手写状态）
-- [ ] GitHub Actions 自动出 ISO（骨架已在 `.github/workflows`，见 `GITHUB-ACTIONS.md`）
+## 免责声明
 
-## 贡献
+**这不是一个可用的操作系统，也不适合生产环境或存放重要数据。** 功能可能不完整、不持久、不安全或未经测试。请备份工作内容，并使用可随时丢弃的虚拟硬盘。
 
-欢迎 issue 和 PR，尤其是：
+## 许可证
 
-- 在真机 / 其他模拟器（VirtualBox、Bochs、SeaBIOS）上跑通的反馈
-- PS/2、VGA、GRUB 配置相关的修复
-- 把「AI 生成但没验证」的代码段挑出来标 TODO
-
-提交前跑一遍：
-
-```bash
-make clean && make iso
-```
-
-确保能出盘再提。
-
-## 许可
-
-**AGPL-3.0** —— 详见 [LICENSE](LICENSE)。
-衍生项目（包括以服务形式对外提供）都需要开源，别绕。
-
----
-
-<sub>本项目由 AI 辅助生成初版代码，人工调试维护。能跑就行，别生产。</sub>
+请参阅 [`LICENSE`](LICENSE)。

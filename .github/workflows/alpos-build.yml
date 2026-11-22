@@ -9,27 +9,25 @@ permissions:
 jobs:
   build-iso:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install build and emulator tools
+      - uses: actions/checkout@v4
+      - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu \
-            grub-pc-bin grub-common xorriso mtools python3 qemu-system-x86
-      - name: Build kernel and ISO
+          sudo apt-get install -y build-essential gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu grub-pc-bin grub-common xorriso mtools python3 qemu-system-x86
+      - name: Build ISO
         run: |
           make clean
           make iso
           test -s kernel/build-x86/alpos.iso
           file kernel/build-x86/alpos.iso
-      - name: QEMU boot smoke test
+      - name: Boot smoke test
         run: make test
-      - name: Upload bootable ISO and ELF files
+      - name: Upload ISO and build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: alpos-x86_64-gui-iso
+          name: alpos-x86_64-prototype-iso
           if-no-files-found: error
           path: |
             kernel/build-x86/alpos.iso

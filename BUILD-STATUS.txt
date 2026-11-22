@@ -1,22 +1,8 @@
-alpOS GUI input + CI patch
-
-Included:
-- PS/2 controller setup and keyboard scanning enable
-- Keyboard polling with serial fallback
-- PS/2 mouse defaults/reporting enable and packet decoding
-- Framebuffer mouse pointer
-- GitHub Actions workflow: ISO build, QEMU smoke test, artifact upload
-- Build-time source verifier
-
-Local checks passed:
-- main.c compiled with x86_64-linux-gnu-gcc -Wall -Wextra -Werror
-- gui/gfx.c compiled with x86_64-linux-gnu-gcc -Wall -Wextra -Werror
-- verify_input.py passed
-- apply script bash syntax passed
-
-Not verified here:
-- Complete ISO build (GRUB/xorriso unavailable)
-- QEMU boot test
-- Physical Limbo keyboard/mouse test
-
-GitHub repository was not modified; integration connection returned HTTP 403 Resource not accessible by integration.
+alpOS prototype revision
+- Bilingual README: English + Simplified Chinese.
+- Explicitly states first prototype based on corecome-out; not a usable OS.
+- Documents AI use and reproducible AI-assisted development workflow.
+- Full-screen framebuffer terminal is now the first interface.
+- Slash and backslash glyph rendering added; scan code 0x35 explicitly maps to slash/question mark.
+- GitHub Actions workflow builds ISO, runs configured QEMU smoke test, uploads artifacts.
+- Must be tested on GitHub Actions and Limbo; no claim of runtime success.
