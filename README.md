@@ -141,3 +141,7 @@ qemu-system-x86_64 -machine pc -m 256M -cdrom kernel/build-x86/alpos.iso -serial
 ## 许可证
 
 请参阅 [`LICENSE`](LICENSE)。
+This is a Versions based on changes from other kernel projects. The original project is in.https://github.com/110we/corecome-out
+We used the same license to ensure its compliance.
+Thank 110we for his development.
+It should be noted that we have used here It is part of its architecture, and then it is transferred and ported to the x86 platform using AI.
