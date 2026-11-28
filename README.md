@@ -1,5 +1,14 @@
 # alpOS — corecome-out Kernel Prototype / alpOS 内核原型系统
-This is based on https://github.com/110we/corecome-out The developed operating system. Right now, he's just a circle.This is just a prototype.
+This is only a prototype system, not a desktop operating system intended for long-term maintenance and use. Its main purpose is to provide a system for people to carry out secondary development and customization.
+
+The project will not be maintained long-term. Only documentation and PRs (Pull Requests) will be accepted. This is a personal project.
+
+The project has been modified once by ChatGPT. It is now impossible to guarantee whether the original content of corecome-out has been preserved. Therefore, this project is based on the corecome-out version ported to x86.
+
+ChatGPT guarantees that the project is based on these modifications (although its authenticity cannot be guaranteed). The project will not undergo any major further changes.
+
+If you find this project and develop your own project based on it, please clearly indicate the original source. Any further secondary development should be based on corecome-out.
+
 **English | [简体中文](#简体中文)**
 
 > alpOS is the first prototype system built on the `corecome-out` kernel project. It is an experimental platform for people who want to learn about and collaboratively develop operating systems. **It is not a usable, production-ready operating system or a Linux distribution.**
